@@ -252,15 +252,3 @@ impl<F: PrimeField> Display for Expression<F> {
         }
     }
 }
-
-#[test]
-fn print_circuit() {
-    let circuit = Circuit::<Fr>::from_constraint_system(&read_constraint_system::<Fr>(
-        &format!(TEST_DATA_PATH!(), "sum_of_sqrt.r1cs"),
-        &format!(TEST_DATA_PATH!(), "sum_of_sqrt.wasm"),
-    ));
-
-    println!("Number of gates: {}", circuit.num_gates());
-
-    // println!("{}", circuit.expression);
-}

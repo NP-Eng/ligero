@@ -1,4 +1,5 @@
 pub mod circuit;
+pub mod node;
 pub mod reader;
 
 #[macro_export]

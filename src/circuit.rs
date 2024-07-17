@@ -3,29 +3,32 @@ use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 use std::{
+    borrow::BorrowMut,
+    collections::HashSet,
     fmt::Display,
     iter::Sum,
     ops::{Add, Mul, Neg, Sub},
+    rc::Rc,
 };
 
 use crate::reader::read_constraint_system;
 use crate::TEST_DATA_PATH;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Expression<F: PrimeField> {
     Variable(usize), // ID
     Constant(F),
-    Add(Box<Adder<F>>),
-    Mul(Box<Multiplier<F>>),
+    Add(Rc<Adder<F>>),
+    Mul(Rc<Multiplier<F>>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Adder<F: PrimeField> {
     left: Expression<F>,
     right: Expression<F>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Multiplier<F: PrimeField> {
     left: Expression<F>,
     right: Expression<F>,
@@ -56,13 +59,42 @@ impl<F: PrimeField> Expression<F> {
     fn indicator_function(&self) -> Self {
         self.exp((-F::one()).into())
     }
+
+    // Count the number of gates in the expression
+    fn num_gates(&self) -> usize {
+        let mut seen_gates = HashSet::new();
+        self.explore_gates(&mut seen_gates);
+        seen_gates.len()
+    }
+
+    fn explore_gates<'a>(&'a self, explored_gates: &mut HashSet<usize>) {
+        match &self {
+            Expression::Add(a) => {
+                if explored_gates.contains(&(a.as_ref() as *const _ as usize)) {
+                    return;
+                }
+                explored_gates.insert(a.as_ref() as *const _ as usize);
+                a.left.explore_gates(explored_gates);
+                a.right.explore_gates(explored_gates);
+            }
+            Expression::Mul(m) => {
+                if explored_gates.contains(&(m.as_ref() as *const _ as usize)) {
+                    return;
+                }
+                explored_gates.insert(m.as_ref() as *const _ as usize);
+                m.left.explore_gates(explored_gates);
+                m.right.explore_gates(explored_gates);
+            }
+            _ => (),
+        }
+    }
 }
 
 impl<F: PrimeField> Add for Expression<F> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Expression::Add(Box::new(Adder {
+        Expression::Add(Rc::new(Adder {
             left: self,
             right: rhs,
         }))
@@ -73,7 +105,7 @@ impl<F: PrimeField> Add<F> for Expression<F> {
     type Output = Self;
 
     fn add(self, rhs: F) -> Self::Output {
-        Expression::Add(Box::new(Adder {
+        Expression::Add(Rc::new(Adder {
             left: self,
             right: Expression::Constant(rhs),
         }))
@@ -84,7 +116,7 @@ impl<F: PrimeField> Mul for Expression<F> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        Expression::Mul(Box::new(Multiplier {
+        Expression::Mul(Rc::new(Multiplier {
             left: self,
             right: rhs,
         }))
@@ -95,7 +127,7 @@ impl<F: PrimeField> Mul<F> for Expression<F> {
     type Output = Self;
 
     fn mul(self, rhs: F) -> Self::Output {
-        Expression::Mul(Box::new(Multiplier {
+        Expression::Mul(Rc::new(Multiplier {
             left: self,
             right: Expression::Constant(rhs),
         }))
@@ -106,7 +138,7 @@ impl<F: PrimeField> Neg for Expression<F> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Expression::Mul(Box::new(Multiplier {
+        Expression::Mul(Rc::new(Multiplier {
             left: Expression::Constant(-F::one()),
             right: self,
         }))
@@ -117,7 +149,7 @@ impl<F: PrimeField> Sub for Expression<F> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Expression::Add(Box::new(Adder {
+        Expression::Add(Rc::new(Adder {
             left: self,
             right: -rhs,
         }))
@@ -128,7 +160,7 @@ impl<F: PrimeField> Sub<F> for Expression<F> {
     type Output = Self;
 
     fn sub(self, rhs: F) -> Self::Output {
-        Expression::Add(Box::new(Adder {
+        Expression::Add(Rc::new(Adder {
             left: self,
             right: Expression::Constant(-rhs),
         }))
@@ -197,8 +229,13 @@ impl<F: PrimeField> Circuit<F> {
             .collect::<Vec<_>>();
 
         Circuit {
-            expression: indicators.into_iter().sum(),
+            expression: indicators.into_iter().sum::<Expression<F>>()
+                + Expression::Constant(F::one()),
         }
+    }
+
+    fn num_gates(&self) -> usize {
+        self.expression.num_gates()
     }
 }
 
@@ -223,5 +260,7 @@ fn print_circuit() {
         &format!(TEST_DATA_PATH!(), "sum_of_sqrt.wasm"),
     ));
 
-    println!("{}", circuit.expression);
+    println!("Number of gates: {}", circuit.num_gates());
+
+    // println!("{}", circuit.expression);
 }

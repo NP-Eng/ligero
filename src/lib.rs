@@ -1,4 +1,6 @@
 pub mod arithmetic_circuit;
+pub mod ligero;
+pub(crate) mod matrices;
 pub mod reader;
 
 // TODO Think of the correct relation between R1CS and circuit in terms of

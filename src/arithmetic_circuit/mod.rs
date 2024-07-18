@@ -7,7 +7,7 @@ use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 mod tests;
 
 #[derive(Debug, Clone, PartialEq)]
-enum Node<F: PrimeField> {
+pub(crate) enum Node<F: PrimeField> {
     /// Variable set individually for each execution
     Variable,
     /// Constant across all executions
@@ -23,7 +23,7 @@ enum Node<F: PrimeField> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArithmeticCircuit<F: PrimeField> {
     // List of nodes of the circuit
-    nodes: Vec<Node<F>>,
+    pub(crate) nodes: Vec<Node<F>>,
     // Hash map of constants defined in the circuit in order to avoid duplication
     constants: HashMap<F, usize>,
     // Big-endian bit decomposition of F::MODULUS - 1, without initial zeros

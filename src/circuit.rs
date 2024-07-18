@@ -41,7 +41,7 @@ impl<F: PrimeField> Expression<F> {
             .into_iter()
             .skip_while(|b| !b)
             .collect::<Vec<_>>();
-        let mut result = Expression::Constant(F::one());
+        let mut result = Expression::Constant(F::ONE);
         let mut current = self.clone();
 
         for bit in binary_decomposition.into_iter().rev() {
@@ -57,7 +57,7 @@ impl<F: PrimeField> Expression<F> {
     // When the field is prime, this is equivalent to computing the inverse of self
     // thus, the expression will be identical to zero iff self is zero
     fn indicator_function(&self) -> Self {
-        self.exp((-F::one()).into())
+        self.exp((-F::ONE).into())
     }
 
     // Count the number of gates in the expression
@@ -139,7 +139,7 @@ impl<F: PrimeField> Neg for Expression<F> {
 
     fn neg(self) -> Self::Output {
         Expression::Mul(Rc::new(Multiplier {
-            left: Expression::Constant(-F::one()),
+            left: Expression::Constant(-F::ONE),
             right: self,
         }))
     }
@@ -197,7 +197,7 @@ impl<F: PrimeField> Circuit<F> {
         let ConstraintMatrices { a, b, c, .. } = cs.to_matrices().unwrap();
 
         let solution_vector = [
-            vec![Expression::Constant(F::one())],
+            vec![Expression::Constant(F::ONE)],
             (0..cs.num_instance_variables + cs.num_witness_variables)
                 .map(|i| Expression::Variable(i))
                 .collect::<Vec<_>>(),
@@ -230,7 +230,7 @@ impl<F: PrimeField> Circuit<F> {
 
         Circuit {
             expression: indicators.into_iter().sum::<Expression<F>>()
-                + Expression::Constant(F::one()),
+                + Expression::Constant(F::ONE),
         }
     }
 

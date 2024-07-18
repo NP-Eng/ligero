@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
@@ -20,52 +20,14 @@ enum Node<F: PrimeField> {
     Mul(usize, usize),
 }
 
-// TODO remove
-// let node1 = circuit.variable()
-// let node2 = circuit.variable()
-// let node3 = circuit.add(node1, node2)
-// let node4 = circuit.mul(node2, node3)
-// let node4 = circuit.m(node4) // ^p-1
-//
-// Circuit = {id1: gate_1, id2: gate_2}
-
-// let gate3 = circuit.add(gate_1, gate_2)
-// let gate4 = circuit.constant(F::from(25));
-
-// gate_3 = gate_1 + gate_2
-// circuit.update(gate_3)
-
-// Circuit = {id1: gate_1, id2: gate_2, id3: Add(id1, id2)}
-
-// TODO Think of the correct relation between R1CS and circuit in terms of
-// instance/witness, public/private inputs and constants
-//
-// R1CS: instance, witness
-// Circuit: (alpha_1, ... alpha_n)
-//
-// Maybe    instance <-> circuit constants
-//          witness <-> (alpha_1, ... alpha_n) (= circuit variables)
-
-// TODO think about optimising this sort of duplication introduced by circom/R1CS
-// one = circuit.one();
-// fortyseven = circuit.constant(47);
-// circuit.mul(fortyseven, one);
-//
-// as opposed to
-// circuit.constant(47);
-
-// TODO save zero-trimmed bit decomposition of p - 1
-
-// TODO better use of unchecked methods
-
-// TODO call one() when reading
-// TODO add constraints -1, 0 to the constraint system
-
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ArithmeticCircuit<F: PrimeField> {
     // List of nodes of the circuit
     nodes: Vec<Node<F>>,
-    one: Option<usize>,
+    // Hash map of constants defined in the circuit in order to avoid duplication
+    constants: HashMap<F, usize>,
+    // Big-endian bit decomposition of F::MODULUS - 1, without initial zeros
+    unit_group_bits: Option<Vec<bool>>,
 }
 
 impl<F: PrimeField> ArithmeticCircuit<F> {
@@ -88,21 +50,23 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     }
 
     pub fn new() -> Self {
+        let mod_minus_one: F::BigInt = (-F::ONE).into();
+
         Self {
             nodes: Vec::new(),
-            one: None,
-        }
-    }
-
-    pub fn one(&mut self) -> usize {
-        match self.one {
-            Some(index) => index,
-            None => self.constant(F::ONE),
+            constants: HashMap::new(),
+            unit_group_bits: Option::None,
         }
     }
 
     pub fn constant(&mut self, value: F) -> usize {
-        self.push_node(Node::Constant(value))
+        if let Some(index) = self.constants.get(&value) {
+            *index
+        } else {
+            let index = self.push_node(Node::Constant(value));
+            self.constants.insert(value, index);
+            index
+        }
     }
 
     pub fn variable(&mut self) -> usize {
@@ -163,17 +127,19 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .into_iter()
             .skip_while(|b| !b)
             .collect::<Vec<_>>();
-        println!("Binary decomposition: {:?}", binary_decomposition);
 
-        // Standard square-and-multiply. The first bit is always one, so we can
-        // skip it and initialise the accumulator to node instead of 1
+        self.binary_pow(node, &binary_decomposition)
+    }
 
+    // Standard square-and-multiply. The first bit is always one, so we can
+    // skip it and initialise the accumulator to node instead of 1
+    fn binary_pow(&mut self, node: usize, binary_decomposition: &Vec<bool>) -> usize {
         let mut current = node;
 
-        for bit in binary_decomposition.into_iter().skip(1) {
+        for bit in binary_decomposition.iter().skip(1) {
             current = self.mul_unchecked(current, current);
 
-            if bit {
+            if *bit {
                 current = self.mul_unchecked(current, node);
             }
         }
@@ -181,10 +147,26 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         current
     }
 
+    // Computes the node x^(F::MODULUS - 1), which is 0 if x = 0 and 1 otherwise
     pub fn indicator(&mut self, node: usize) -> usize {
-        self.pow(node, (-F::one()).into())
+        let unit_group_bits = self
+            .unit_group_bits
+            .get_or_insert_with(|| {
+                let mod_minus_one: F::BigInt = (-F::ONE).into();
+                mod_minus_one
+                    .to_bits_be()
+                    .into_iter()
+                    .skip_while(|b| !b)
+                    .collect()
+            })
+            .clone();
+
+        self.binary_pow(node, &unit_group_bits)
     }
 
+    // Compute the scalar product of two vectors of nodes. Does NOT perform
+    // optimisations by, for instance, skipping multiplication of the form 1 * x
+    // or 0 * x, or omitting addition of zero terms.
     pub fn scalar_product(
         &mut self,
         left: impl IntoIterator<Item = usize>,
@@ -195,20 +177,6 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .zip(right.into_iter())
             .map(|(l, r)| self.mul_unchecked(l, r))
             .collect::<Vec<_>>();
-        self.add_nodes(products)
-    }
-
-    pub fn sparse_scalar_product(&mut self, sparse_row: Vec<(F, usize)>) -> usize {
-        let constants = sparse_row
-            .into_iter()
-            .map(|(c, var_index)| (self.constant(c), var_index))
-            .collect::<Vec<_>>();
-
-        let products = constants
-            .into_iter()
-            .map(|(c_index, var_index)| self.mul(c_index, var_index))
-            .collect::<Vec<_>>();
-
         self.add_nodes(products)
     }
 
@@ -292,10 +260,10 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
                 let value = if let Some(v) = value {
                     format!("{v:?}")
                 } else {
-                    "None".to_string()
+                    "not set".to_string()
                 };
 
-                println!("\t{index}: {node:?} = {value}");
+                println!("\t{index}: {node} = {value}");
             }
         }
     }
@@ -304,13 +272,13 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         let ConstraintMatrices { a, b, c, .. } = cs.to_matrices().unwrap();
 
         let mut circuit = ArithmeticCircuit::new();
-        let one = circuit.one();
+        let one = circuit.constant(F::ONE);
         circuit.variables(cs.num_instance_variables + cs.num_witness_variables - 1);
 
         let mut row_expressions = |matrix: Vec<Vec<(F, usize)>>| {
             matrix
                 .into_iter()
-                .map(|row| circuit.sparse_scalar_product(row))
+                .map(|row| circuit.compile_sparse_scalar_product(row))
                 .collect::<Vec<_>>()
         };
 
@@ -326,7 +294,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .map(|(a, b)| circuit.mul(a, b))
             .collect::<Vec<_>>();
 
-        let minus_one = circuit.constant(-F::one());
+        let minus_one = circuit.constant(-F::ONE);
         let minus_c = c
             .into_iter()
             .map(|c| circuit.mul(c, minus_one))
@@ -348,6 +316,31 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         circuit.add(node_sum, one);
         circuit
     }
+
+    // Compile a sparse scalar product into nodes. Relies on some assumptions
+    // guaranteed by `from_constraint_systems`, which should be the only caller.
+    // Performs certain optimisations, most notably: terms of the form C * 1 and
+    // 1 * V are simplified to C and V respectively.
+    fn compile_sparse_scalar_product(&mut self, sparse_row: Vec<(F, usize)>) -> usize {
+        let constants = sparse_row
+            .into_iter()
+            .map(|(c, var_index)| (self.constant(c), var_index))
+            .collect::<Vec<_>>();
+
+        let products = constants
+            .into_iter()
+            .map(|(c_index, var_index)| {
+                // If either the constant or the variable is ONE, we can just return the other
+                if c_index == 0 || var_index == 0 {
+                    c_index + var_index
+                } else {
+                    self.mul(c_index, var_index)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        self.add_nodes(products)
+    }
 }
 
 impl<F: PrimeField> Display for Node<F> {
@@ -355,8 +348,8 @@ impl<F: PrimeField> Display for Node<F> {
         match self {
             Node::Variable => write!(f, "Variable"),
             Node::Constant(c) => write!(f, "Constant({})", c),
-            Node::Add(left, right) => write!(f, "{} + {})", left, right),
-            Node::Mul(left, right) => write!(f, "{} * {}", left, right),
+            Node::Add(left, right) => write!(f, "node({}) + node({})", left, right),
+            Node::Mul(left, right) => write!(f, "node({}) * node({})", left, right),
         }
     }
 }

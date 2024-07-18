@@ -1,5 +1,4 @@
 pub mod arithmetic_circuit;
-pub mod circuit;
 pub mod reader;
 
 // TODO Think of the correct relation between R1CS and circuit in terms of

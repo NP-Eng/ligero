@@ -151,7 +151,7 @@ fn test_cube() {
 
     // The R1CS compiler uses an indicator for each constraint, leading to a massively blown-up circuit
     assert_eq!(naive_circuit.num_nodes(), 719);
-    assert_eq!(clever_circuit.num_gates(), 5);
+    assert_eq!(clever_circuit.num_gates(), 3);
 }
 
 #[test]

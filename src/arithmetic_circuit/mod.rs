@@ -35,6 +35,17 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.nodes.len()
     }
 
+    pub fn num_constants(&self) -> usize {
+        self.constants.len()
+    }
+
+    pub fn num_variables(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| **node == Node::Variable)
+            .count()
+    }
+
     pub fn last(&self) -> usize {
         self.nodes.len() - 1
     }
@@ -50,8 +61,6 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     }
 
     pub fn new() -> Self {
-        let mod_minus_one: F::BigInt = (-F::ONE).into();
-
         Self {
             nodes: Vec::new(),
             constants: HashMap::new(),
@@ -269,6 +278,12 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     }
 
     pub fn from_constraint_system(cs: &ConstraintSystem<F>) -> Self {
+        // TODO include assertion (likely irrelevant in practice) that the
+        // *effective* number of constraints is less than F::MODULUS
+        // minus...one? two? In any case, getting the effective number of
+        // constraints is a difficult task in itself, to be addressed in v2 of
+        // this compiler
+
         let ConstraintMatrices { a, b, c, .. } = cs.to_matrices().unwrap();
 
         let mut circuit = ArithmeticCircuit::new();

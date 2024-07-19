@@ -20,7 +20,10 @@ pub mod reader;
 
 // TODO code optimised version of scalar product
 
+// TODO parallelisation
+
 // TODO tests:
+// - Various SparseMatrix tests
 // - Cannot set non-variable to a value
 // - When setting a variable twice, the last value is used
 // - Initialisation?

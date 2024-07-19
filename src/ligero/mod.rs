@@ -48,15 +48,18 @@ impl<F: PrimeField> LigeroCircuit<F> {
         nodes.iter().enumerate().skip(1).for_each(|(i, node)| {
             match node {
                 Node::Variable => {
-                    [p_x, p_y, p_z, p_add]
-                        .iter_mut()
-                        .for_each(|p| p.push(vec![]));
+                    p_x.push(vec![]);
+                    p_y.push(vec![]);
+                    p_z.push(vec![]);
+                    p_add.push(vec![]);
                 }
-                Node::Constant(v) => {
+                Node::Constant(_) => {
                     seen_constants += 1;
                 }
                 Node::Add(l_node, r_node) => {
-                    [p_x, p_y, p_z].iter_mut().for_each(|p| p.push(vec![]));
+                    p_x.push(vec![]);
+                    p_y.push(vec![]);
+                    p_z.push(vec![]);
 
                     if let Node::Constant(c) = nodes[*l_node] {
                         p_add.push(vec![

@@ -92,3 +92,47 @@ impl<F: PrimeField> Neg for SparseMatrix<F> {
         }
     }
 }
+
+pub(crate) struct DenseMatrix<F> {
+    pub(crate) rows: Vec<Vec<F>>,
+}
+
+impl<F: PrimeField> DenseMatrix<F> {
+    pub(crate) fn new(rows: Vec<Vec<F>>) -> Self {
+        Self { rows }
+    }
+    pub(crate) fn row_mul(&self, row: &Vec<F>) -> Vec<F> {
+        let mut result = vec![F::ZERO; self.rows[0].len()];
+
+        for (c, own_row) in row.iter().zip(self.rows.iter()) {
+            result
+                .iter_mut()
+                .zip(own_row.iter())
+                .for_each(|(res, own)| *res += *own * *c);
+        }
+
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_bn254::Fr;
+
+    use super::*;
+
+    #[test]
+    fn test_mat_mul() {
+        let m = DenseMatrix::new(vec![
+            vec![Fr::from(1u32), Fr::from(2u32), Fr::from(8u32)],
+            vec![Fr::from(3u32), Fr::from(4u32), Fr::from(5u32)],
+        ]);
+
+        let v = vec![-Fr::from(5u32), Fr::from(17u32)];
+
+        assert_eq!(
+            m.row_mul(&v),
+            vec![Fr::from(46u32), Fr::from(58u32), Fr::from(45u32)]
+        );
+    }
+}

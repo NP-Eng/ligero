@@ -1,8 +1,11 @@
+use ark_crypto_primitives::sponge::CryptographicSponge;
 use ark_ff::PrimeField;
+use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use itertools::Itertools;
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
-    matrices::SparseMatrix,
+    matrices::{DenseMatrix, SparseMatrix},
 };
 
 pub struct LigeroCircuit<F: PrimeField> {
@@ -35,6 +38,9 @@ pub struct LigeroCircuit<F: PrimeField> {
 
     /// Number of column openings
     t: usize,
+
+    /// FFT domain for the Reed Solomon code
+    fft_domain: GeneralEvaluationDomain<F>,
 }
 
 impl<F: PrimeField> LigeroCircuit<F> {
@@ -61,6 +67,13 @@ impl<F: PrimeField> LigeroCircuit<F> {
 
         let a = Self::generate_matrices(&circuit, m * l);
 
+        let fft_domain = GeneralEvaluationDomain::<F>::new(n).unwrap_or_else(|| {
+            panic!(
+                "The field F cannot accomodate FFT for msg.len() * RHO_INV = {} elements (too many)",
+                n
+            )
+        });
+
         Self {
             circuit,
             output_node,
@@ -70,6 +83,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
             n,
             k,
             t,
+            fft_domain,
         }
     }
 
@@ -164,24 +178,62 @@ impl<F: PrimeField> LigeroCircuit<F> {
         upper.v_stack(lower)
     }
 
-    pub fn prove(&self, vars: Vec<(usize, F)>) {
-        // Solution vector, w in the notation of the paper. The first element is
-        // an extra 1 used to handle constants in this more general version
-        let w: Vec<F> = self
-            .circuit
-            .evaluate_full(vars, self.output_node)
-            .into_iter()
-            .zip(
-                self
-                .circuit
-                .nodes
-                .iter()
-            )
+    pub fn prove(&self, vars: Vec<(usize, F)>, sponge: &mut impl CryptographicSponge) -> Vec<F> {
+        // TODO initialise sponge, absorb maybe x, y, z
+
+        let sol: Vec<F> = self.circuit.evaluate_full(vars, self.output_node).into_iter().map(|n|
+            n.expect("Uninitialised variable. Make sure the circuit only contains nodes upon which the final output truly depends")
+        ).collect();
+
+        // Solution and multiplication IO vectors (w, x, y and z in the notation
+        // of the paper). The first element of w is an extra 1 used to handle
+        // constants in this more general version
+        let mut x = vec![];
+        let mut y = vec![];
+        let mut z = vec![];
+        let mut w = vec![];
+
+        sol.iter()
+            .zip(self.circuit.nodes.iter())
             .enumerate()
             .filter(|(i, (_, node))| !matches!(node, Node::Constant(_)) || *i == 0)
-            .map(|(_, (val, _))| val.expect(
-                "Uninitialised variable. Make sure the circuit only contains nodes on which the final output truly depends"
-            ))
-            .collect();
+            .for_each(|(_, (val, node))| {
+                w.push(*val);
+
+                if let Node::Mul(left, right) = node {
+                    x.push(sol[*left]);
+                    y.push(sol[*right]);
+                    z.push(*val);
+                }
+            });
+
+        let preencoding_x: Vec<Vec<F>> = x.chunks_exact(self.l).map(|row| row.to_vec()).collect();
+        let preencoding_y: Vec<Vec<F>> = y.chunks_exact(self.l).map(|row| row.to_vec()).collect();
+        let preencoding_z: Vec<Vec<F>> = z.chunks_exact(self.l).map(|row| row.to_vec()).collect();
+        let preencoding_w: Vec<Vec<F>> = w.chunks_exact(self.l).map(|row| row.to_vec()).collect();
+
+        let preencoding_u: Vec<Vec<F>> =
+            vec![preencoding_x, preencoding_y, preencoding_z, preencoding_w].concat();
+
+        let u: DenseMatrix<F> = DenseMatrix::new(
+            preencoding_u
+                .into_iter()
+                .map(|row| self.reed_solomon(row))
+                .collect(),
+        );
+
+        // TODO: Feed u into the Sponge
+
+        // let r = sponge.squeeze_field_elements(4 * self.m);
+
+        // let r_preencoding_u = u.row_mul(&r);
+
+        todo!()
+    }
+
+    fn reed_solomon(&self, msg: Vec<F>) -> Vec<F> {
+        let mut msg = msg;
+        msg.resize(self.n, F::ZERO);
+        self.fft_domain.fft(&msg)
     }
 }

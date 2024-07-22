@@ -2,6 +2,7 @@ pub mod arithmetic_circuit;
 pub mod ligero;
 pub(crate) mod matrices;
 pub mod reader;
+pub(crate) mod utils;
 
 // TODO Think of the correct relation between R1CS and circuit in terms of
 // instance/witness, public/private inputs and constants

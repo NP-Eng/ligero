@@ -76,6 +76,18 @@ impl<F: PrimeField> SparseMatrix<F> {
         self.rows.extend(other.rows);
         self
     }
+
+    pub(crate) fn row_mul(&self, row: &Vec<F>) -> Vec<F> {
+        let mut result = vec![F::ZERO; self.num_cols];
+
+        for (c, own_row) in row.iter().zip(self.rows.iter()) {
+            for (value, col) in own_row {
+                result[*col] += *c * value;
+            }
+        }
+
+        result
+    }
 }
 
 impl<F: PrimeField> Neg for SparseMatrix<F> {
@@ -101,6 +113,7 @@ impl<F: PrimeField> DenseMatrix<F> {
     pub(crate) fn new(rows: Vec<Vec<F>>) -> Self {
         Self { rows }
     }
+
     pub(crate) fn row_mul(&self, row: &Vec<F>) -> Vec<F> {
         let mut result = vec![F::ZERO; self.rows[0].len()];
 
@@ -122,7 +135,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mat_mul() {
+    fn test_mat_mul_dense() {
         let m = DenseMatrix::new(vec![
             vec![Fr::from(1u32), Fr::from(2u32), Fr::from(8u32)],
             vec![Fr::from(3u32), Fr::from(4u32), Fr::from(5u32)],
@@ -133,6 +146,20 @@ mod tests {
         assert_eq!(
             m.row_mul(&v),
             vec![Fr::from(46u32), Fr::from(58u32), Fr::from(45u32)]
+        );
+    }
+
+    #[test]
+    fn test_mat_mul_sparse() {
+        let mut m = SparseMatrix::new(3);
+        m.push_row(vec![(Fr::from(1u32), 0), (Fr::from(8u32), 2)]);
+        m.push_row(vec![(Fr::from(4u32), 1), (Fr::from(5u32), 2)]);
+
+        let v = vec![-Fr::from(5u32), Fr::from(17u32)];
+
+        assert_eq!(
+            m.row_mul(&v),
+            vec![-Fr::from(5u32), Fr::from(68u32), Fr::from(45u32)]
         );
     }
 }

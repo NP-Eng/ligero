@@ -4,6 +4,9 @@ pub(crate) mod matrices;
 pub mod reader;
 pub(crate) mod utils;
 
+pub(crate) const CHACHA_SEED_BYTES: usize = 256 / 8;
+pub(crate) const DEFAULT_SECURITY_LEVEL: usize = 128;
+
 // TODO Think of the correct relation between R1CS and circuit in terms of
 // instance/witness, public/private inputs and constants
 //
@@ -22,6 +25,14 @@ pub(crate) mod utils;
 // TODO code optimised version of scalar product
 
 // TODO parallelisation
+
+// TODO consider syntactic improvements to circuit construction:
+// - circuit_builder.add(x, y).minus(z).build()
+// - Node = (usize, &Circuit)
+//   x + 3 * y + z^2
+// - Builder representation AddNode = (Box(Node, Box(Node))
+//   x + 3 * y + z^2
+//   Then implement a compiler builder representation -> ArithmeticCircuit
 
 // TODO tests:
 // - Various SparseMatrix tests

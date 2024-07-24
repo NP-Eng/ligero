@@ -2,7 +2,7 @@ use std::ops::Neg;
 
 use ark_ff::PrimeField;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SparseMatrix<F> {
     num_cols: usize,
     rows: Vec<Vec<(F, usize)>>,
@@ -13,6 +13,20 @@ impl<F: PrimeField> SparseMatrix<F> {
         Self {
             num_cols,
             rows: Vec::new(),
+        }
+    }
+
+    pub(crate) fn from_rows(rows: Vec<Vec<(F, usize)>>, num_cols: usize) -> Self {
+        Self { num_cols, rows }
+    }
+
+    pub(crate) fn from_vec_of_slices(rows: &Vec<&[(F, usize)]>, num_cols: usize) -> Self {
+        Self {
+            num_cols,
+            rows: rows
+                .iter()
+                .map(|row| row.iter().copied().collect())
+                .collect(),
         }
     }
 

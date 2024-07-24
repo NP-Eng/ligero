@@ -1,3 +1,4 @@
+use num_bigint::BigUint;
 use std::{collections::HashMap, fmt::Display};
 
 use ark_ff::{BigInteger, PrimeField};
@@ -124,7 +125,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .unwrap()
     }
 
-    pub fn pow(&mut self, node: usize, exponent: F::BigInt) -> usize {
+    pub fn pow_bigint(&mut self, node: usize, exponent: BigUint) -> usize {
         assert!(
             node < self.num_nodes(),
             "Base node ({node}) not in the circuit (which contains {} nodes)",
@@ -132,17 +133,22 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         );
 
         let binary_decomposition = exponent
-            .to_bits_be()
+            .to_radix_be(2)
             .into_iter()
+            .map(|b| b == 1)
             .skip_while(|b| !b)
             .collect::<Vec<_>>();
 
-        self.binary_pow(node, &binary_decomposition)
+        self.pow_binary(node, &binary_decomposition)
+    }
+
+    pub fn pow(&mut self, node: usize, exponent: usize) -> usize {
+        self.pow_bigint(node, exponent.into())
     }
 
     // Standard square-and-multiply. The first bit is always one, so we can
     // skip it and initialise the accumulator to node instead of 1
-    fn binary_pow(&mut self, node: usize, binary_decomposition: &Vec<bool>) -> usize {
+    fn pow_binary(&mut self, node: usize, binary_decomposition: &Vec<bool>) -> usize {
         let mut current = node;
 
         for bit in binary_decomposition.iter().skip(1) {
@@ -170,7 +176,12 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             })
             .clone();
 
-        self.binary_pow(node, &unit_group_bits)
+        self.pow_binary(node, &unit_group_bits)
+    }
+
+    pub fn minus(&mut self, node: usize) -> usize {
+        let minus_one = self.constant(-F::ONE);
+        self.mul(minus_one, node)
     }
 
     // Compute the scalar product of two vectors of nodes. Does NOT perform

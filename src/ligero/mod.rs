@@ -4,14 +4,18 @@ use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
     Polynomial,
 };
-use ark_poly_commit::linear_codes::get_indices_from_sponge;
+use ark_poly_commit::linear_codes::calculate_t;
 use itertools::izip;
 use std::collections::HashSet;
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
     matrices::{DenseMatrix, SparseMatrix},
+    utils::get_distinct_indices_from_sponge,
 };
+
+#[cfg(test)]
+mod tests;
 
 // TODO: optimise: when can one evaluate the interpolating polynomial at the
 // queried points instead of computing the whole RS encoding in the three
@@ -31,7 +35,7 @@ pub struct LigeroCircuit<F: PrimeField> {
     // A =  [   |   -P_z    ]
     //      [---------------]
     //      [ 0 |   P_add   ]
-    a: SparseMatrix<F>,
+    pub(crate) a: SparseMatrix<F>,
 
     /// Number of rows of the `P`` matrices prior to encoding
     m: usize,
@@ -76,7 +80,7 @@ pub struct LigeroProof<F: PrimeField> {
 }
 
 impl<F: PrimeField> LigeroCircuit<F> {
-    pub fn new(circuit: ArithmeticCircuit<F>, output_node: usize) -> Self {
+    pub fn new(circuit: ArithmeticCircuit<F>, output_node: usize, lambda: usize) -> Self {
         // TODO handle this case gracefully: add constant 1 at the beginning of the the circuit
         if circuit.nodes[0] != Node::Constant(F::ONE) {
             panic!("First node in the circuit must be the constant 1");
@@ -94,10 +98,11 @@ impl<F: PrimeField> LigeroCircuit<F> {
         // the less-general version in the article.
         let sol_vec_length = 1 + circuit.num_nodes() - circuit.num_constants();
 
-        let (m, l) = Self::compute_dimensions(sol_vec_length);
-        let (n, k, t) = Self::reed_solomon_parameters(m, l);
+        // In this implementation, k = l by convention
+        let (m, k) = Self::compute_dimensions(sol_vec_length);
+        let (n, t) = Self::reed_solomon_parameters(m, k, lambda);
 
-        let a = Self::generate_matrices(&circuit, m * l);
+        let a = Self::generate_matrices(&circuit, m * k);
 
         let large_domain = GeneralEvaluationDomain::<F>::new(n).unwrap_or_else(|| {
             panic!(
@@ -123,15 +128,27 @@ impl<F: PrimeField> LigeroCircuit<F> {
         }
     }
 
-    // TODO: THIS MUST BE REDONE, REQUIRES AN IN DEPTH ANALYSIS OF m AND l
+    // Computes the dimensions m and l
+    // TODO THIS MUST BE REDONE, REQUIRES AN IN DEPTH ANALYSIS OF m AND l
     fn compute_dimensions(sol_vec_length: usize) -> (usize, usize) {
         let x = (sol_vec_length as f64).sqrt();
         let m = x.ceil() as usize;
-        (m, m)
+        (m, m.next_power_of_two())
     }
 
-    fn reed_solomon_parameters(m: usize, l: usize) -> (usize, usize, usize) {
-        todo!();
+    // Computes the code parameters n (block lengh) and t (number of column openings)
+    // TODO MUST BE IMPLEMENTED
+    fn reed_solomon_parameters(m: usize, k: usize, lambda: usize) -> (usize, usize) {
+        let codeword_length = 8 * k;
+        (
+            codeword_length,
+            calculate_t::<F>(
+                lambda,
+                (codeword_length - k + 1, codeword_length),
+                codeword_length,
+            )
+            .unwrap(),
+        )
     }
 
     fn generate_matrices(circuit: &ArithmeticCircuit<F>, num_cols: usize) -> SparseMatrix<F> {
@@ -331,7 +348,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
         let r_interleaved: Vec<F> = sponge.squeeze_field_elements(4 * self.m);
         let w = self.reed_solomon(interleaved_proof);
 
-        let queried_columns = get_indices_from_sponge(self.n, self.t, sponge).unwrap();
+        let queried_columns = get_distinct_indices_from_sponge(self.n, self.t, sponge);
 
         // Testing w = r^T * U at a few random positions
         queried_columns.into_iter().all(|col|
@@ -385,9 +402,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
 
         // TODO check whether the previous set of indices could be reused
         let queried_columns: HashSet<usize> = HashSet::from_iter(
-            get_indices_from_sponge(self.n, self.t, sponge)
-                .unwrap()
-                .into_iter(),
+            get_distinct_indices_from_sponge(self.n, self.t, sponge).into_iter(),
         );
 
         let mut q_coeffs = linear_proof.coeffs.clone();
@@ -396,15 +411,6 @@ impl<F: PrimeField> LigeroCircuit<F> {
 
         // Cofactor of the intermediate domain inside the large domain,
         let cofactor = self.n / (2 * self.k);
-
-        // // Computing the left-hand side p_0(large_domain[j])
-        // let lhs = if col % cofactor == 0 {
-        //     // In this case, the evaluation point is in the intermediate
-        //     // domain and hence we already have its value
-        //     intermediate_evals[col / cofactor]
-        // } else {
-        //     quadratic_proof.evaluate(&self.large_domain.element(col))
-        // };
 
         // Checking sum_{c = 0}^{l - 1} q(zeta_c) = sum_{i, j} r_ic * b_ic
         if intermediate_evals.iter().step_by(2).sum::<F>() != F::ZERO {
@@ -472,7 +478,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
         // Cofactor of the intermediate domain inside the large domain,
         let cofactor = self.n / (2 * self.k);
 
-        let queried_columns = get_indices_from_sponge(self.n, self.t, sponge).unwrap();
+        let queried_columns = get_distinct_indices_from_sponge(self.n, self.t, sponge);
 
         queried_columns.into_iter().all(|col| {
             // Computing the left-hand side p_0(large_domain[j])

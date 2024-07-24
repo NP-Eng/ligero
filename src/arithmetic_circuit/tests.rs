@@ -29,7 +29,7 @@ fn test_mul_constants() {
 fn test_pow_constants() {
     let mut circuit = ArithmeticCircuit::new();
     let two = circuit.constant(Fr::from(2));
-    let four = circuit.pow(two, Fr::from(5).into());
+    let four = circuit.pow(two, 5);
     assert_eq!(circuit.evaluate(vec![], four), Fr::from(32));
 }
 
@@ -59,7 +59,7 @@ fn test_mul_variables() {
 fn test_pow_variable() {
     let mut circuit = ArithmeticCircuit::new();
     let a = circuit.variable();
-    let b = circuit.pow(a, Fr::from(4).into());
+    let b = circuit.pow(a, 4);
     assert_eq!(circuit.evaluate(vec![(a, Fr::from(2))], b), Fr::from(16));
 }
 
@@ -108,7 +108,7 @@ fn test_cube() {
 
     let mut clever_circuit = ArithmeticCircuit::new();
     let x = clever_circuit.variable();
-    let x_cubed = clever_circuit.pow(x, Fr::from(3).into());
+    let x_cubed = clever_circuit.pow(x, 3);
     let c = clever_circuit.constant(-Fr::from(26));
     clever_circuit.add(x_cubed, c);
 

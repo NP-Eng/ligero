@@ -1,17 +1,41 @@
+use std::collections::HashMap;
+
 use crate::{
     arithmetic_circuit::ArithmeticCircuit, ligero::LigeroCircuit, matrices::SparseMatrix,
     DEFAULT_SECURITY_LEVEL,
 };
-use ark_bn254::Fq;
+use ark_bn254::Fr;
 use ark_ff::Field;
 
-// Defining equation of Bn254: y^2 = x^3 + 3 in Fq
-fn generate_bn254_circuit() -> ArithmeticCircuit<Fq> {
+// TODO remove
+fn print_first_discrepancy(a: &SparseMatrix<Fr>, b: &SparseMatrix<Fr>) {
+    if a.num_cols() != b.num_cols() {
+        println!(
+            "Different number of rows: {} vs {}",
+            a.num_rows(),
+            b.num_rows()
+        );
+        return;
+    }
+
+    a.rows
+        .iter()
+        .zip(b.rows.iter())
+        .enumerate()
+        .for_each(|(i, (a_row, b_row))| {
+            if a_row != b_row {
+                println!("Discrepancy in row {i}:\n\t{a_row:?}\n\tVS\n\t{b_row:?}");
+            }
+        });
+}
+
+// Defining equation of Bn254: y^2 = x^3 + 3 in Fr
+fn generate_bn254_circuit() -> ArithmeticCircuit<Fr> {
     let mut circuit = ArithmeticCircuit::new();
 
     // Ligero circuits must start with a constant 1
-    let one = circuit.constant(Fq::ONE);
-    let three = circuit.constant(Fq::from(3u8));
+    let one = circuit.constant(Fr::ONE);
+    let three = circuit.constant(Fr::from(3u8));
 
     let x = circuit.variable();
     let y = circuit.variable();
@@ -46,7 +70,7 @@ fn generate_bn254_circuit() -> ArithmeticCircuit<Fq> {
     //     1: Variable
     //     2: Variable
     //     3: node(2) * node(2)
-    //     4: node(3) * -1
+    //     4: -1 * node(3)
     //     5: node(1) * node(1)
     //     6: node(5) * node(1)
     //     7: node(6) + 3
@@ -55,11 +79,11 @@ fn generate_bn254_circuit() -> ArithmeticCircuit<Fq> {
 
     // Induced matrices:
     //       Row index      P_x         P_y         P_z        P_add
-    //       0              []          []          []         []
+    //       0              []          []          []         [(1, 8), (1, 0), (-1, 0)]
     //       1              []          []          []         []
     //       2              []          []          []         []
     //       3              [(1, 2)]    [(1, 2)]    [(1, 3)]   []
-    //       4              [(1, 3)]    [(-1, 0)]   [(1, 4)]   []
+    //       4              [(-1, 0)]   [(1, 3)]    [(1, 4)]   []
     //       5              [(1, 1)]    [(1, 1)]    [(1, 5)]   []
     //       6              [(1, 5)]    [(1, 1)]    [(1, 6)]   []
     //       7              []          []          []         [(1, 6), (3, 0), (-1, 7)]
@@ -77,6 +101,9 @@ fn generate_bn254_circuit() -> ArithmeticCircuit<Fq> {
 fn test_construction_for_bn254() {
     let circuit = generate_bn254_circuit();
 
+    // Can do n-element FFT (with n = power of 2) in F iff
+    // F* has a subgroup of order n iff
+    // n | p - 1
     let output_node = circuit.last();
     let (m, k) = (4, 4);
 
@@ -84,10 +111,10 @@ fn test_construction_for_bn254() {
         [
             vec![vec![]; 3],
             vec![
-                vec![(Fq::ONE, 2)],
-                vec![(Fq::ONE, 3)],
-                vec![(Fq::ONE, 1)],
-                vec![(Fq::ONE, 5)],
+                vec![(Fr::ONE, 2)],
+                vec![(-Fr::ONE, 0)],
+                vec![(Fr::ONE, 1)],
+                vec![(Fr::ONE, 5)],
             ],
             vec![vec![]; 9],
         ]
@@ -99,10 +126,10 @@ fn test_construction_for_bn254() {
         [
             vec![vec![]; 3],
             vec![
-                vec![(Fq::ONE, 2)],
-                vec![(-Fq::ONE, 0)],
-                vec![(Fq::ONE, 1)],
-                vec![(Fq::ONE, 1)],
+                vec![(Fr::ONE, 2)],
+                vec![(Fr::ONE, 3)],
+                vec![(Fr::ONE, 1)],
+                vec![(Fr::ONE, 1)],
             ],
             vec![vec![]; 9],
         ]
@@ -114,10 +141,10 @@ fn test_construction_for_bn254() {
         [
             vec![vec![]; 3],
             vec![
-                vec![(Fq::ONE, 3)],
-                vec![(Fq::ONE, 4)],
-                vec![(Fq::ONE, 5)],
-                vec![(Fq::ONE, 6)],
+                vec![(Fr::ONE, 3)],
+                vec![(Fr::ONE, 4)],
+                vec![(Fr::ONE, 5)],
+                vec![(Fr::ONE, 6)],
             ],
             vec![vec![]; 9],
         ]
@@ -127,17 +154,32 @@ fn test_construction_for_bn254() {
 
     let p_add = SparseMatrix::from_rows(
         [
-            vec![vec![]; 3],
+            vec![vec![(Fr::ONE, 8), (Fr::ONE, 0), (-Fr::ONE, 0)]],
+            vec![vec![]; 6],
             vec![
-                vec![(Fq::ONE, 6), (Fq::from(3u8), 0), (-Fq::ONE, 7)],
-                vec![(Fq::ONE, 7), (Fq::ONE, 4), (-Fq::ONE, 8)],
-                vec![(Fq::ONE, 8), (Fq::ONE, 0), (-Fq::ONE, 9)],
+                vec![(Fr::ONE, 6), (Fr::from(3u8), 0), (-Fr::ONE, 7)],
+                vec![(Fr::ONE, 7), (Fr::ONE, 4), (-Fr::ONE, 8)],
+                vec![(Fr::ONE, 8), (Fr::ONE, 0), (-Fr::ONE, 9)],
             ],
-            vec![vec![]; 10],
+            vec![vec![]; 6],
         ]
         .concat(),
         m * k,
     );
+
+    // Useful during testing: unfiltered- to filtered-index map
+    // let index_map = HashMap::from_iter([
+    //     (0, 0),
+    //     (2, 1),
+    //     (3, 2),
+    //     (4, 3),
+    //     (6, 4),
+    //     (7, 5),
+    //     (8, 6),
+    //     (9, 7),
+    //     (10, 8),
+    //     (11, 9),
+    // ]);
 
     //      [   |   -P_x    ]
     //      [ I |   -P_y    ]

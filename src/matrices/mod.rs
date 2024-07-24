@@ -4,8 +4,8 @@ use ark_ff::PrimeField;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SparseMatrix<F> {
-    num_cols: usize,
-    rows: Vec<Vec<(F, usize)>>,
+    pub(crate) num_cols: usize,
+    pub(crate) rows: Vec<Vec<(F, usize)>>,
 }
 
 impl<F: PrimeField> SparseMatrix<F> {
@@ -44,6 +44,10 @@ impl<F: PrimeField> SparseMatrix<F> {
 
     pub(crate) fn push_empty_row(&mut self) {
         self.rows.push(Vec::new());
+    }
+
+    pub(crate) fn push_empty_rows(&mut self, num_rows: usize) {
+        self.rows.extend(vec![Vec::new(); num_rows]);
     }
 
     pub(crate) fn identity(size: usize) -> Self {

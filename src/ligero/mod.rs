@@ -5,8 +5,9 @@ use ark_poly::{
     Polynomial,
 };
 use ark_poly_commit::linear_codes::calculate_t;
+use ark_std::rand::seq::index;
 use itertools::izip;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
@@ -59,6 +60,10 @@ pub struct LigeroCircuit<F: PrimeField> {
 
     /// Intermediate FFT domain for the quadratic-constraints test, size: `2 * k`
     intermediate_domain: GeneralEvaluationDomain<F>,
+
+    /// Map sending the original index of a node to its filtered index (the
+    /// position where it lands after removing all constants but the initial 1)
+    index_map: HashMap<usize, usize>,
 }
 
 pub struct LigeroProof<F: PrimeField> {
@@ -102,7 +107,26 @@ impl<F: PrimeField> LigeroCircuit<F> {
         let (m, k) = Self::compute_dimensions(sol_vec_length);
         let (n, t) = Self::reed_solomon_parameters(m, k, lambda);
 
-        let a = Self::generate_matrices(&circuit, m * k);
+        // Constructing the index map from unfiltered to filtered indices
+        let mut seen_constants = 0;
+        let mut index_map = HashMap::new();
+
+        // The constant 1 remains at position 0
+        index_map.insert(0, 0);
+
+        for (i, node) in circuit.nodes.iter().enumerate().skip(1) {
+            match node {
+                Node::Constant(_) => {
+                    seen_constants += 1;
+                }
+                _ => {
+                    index_map.insert(i, i - seen_constants);
+                }
+            }
+        }
+
+        // Constructing the main matrix A
+        let a = Self::generate_matrices(&circuit, m * k, &index_map);
 
         let large_domain = GeneralEvaluationDomain::<F>::new(n).unwrap_or_else(|| {
             panic!(
@@ -125,6 +149,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
             large_domain,
             small_domain,
             intermediate_domain,
+            index_map,
         }
     }
 
@@ -151,7 +176,16 @@ impl<F: PrimeField> LigeroCircuit<F> {
         )
     }
 
-    fn generate_matrices(circuit: &ArithmeticCircuit<F>, num_cols: usize) -> SparseMatrix<F> {
+    pub(crate) fn generate_matrices_2(
+        circuit: &ArithmeticCircuit<F>,
+        num_cols: usize,
+        index_map: &HashMap<usize, usize>,
+    ) -> (
+        SparseMatrix<F>,
+        SparseMatrix<F>,
+        SparseMatrix<F>,
+        SparseMatrix<F>,
+    ) {
         let nodes = &circuit.nodes;
 
         let mut p_x = SparseMatrix::new(num_cols);
@@ -159,7 +193,54 @@ impl<F: PrimeField> LigeroCircuit<F> {
         let mut p_z = SparseMatrix::new(num_cols);
         let mut p_add = SparseMatrix::new(num_cols);
 
-        let mut seen_constants = 0;
+        // Adding the constraint output = 1
+        let output = circuit.last();
+
+        match &nodes[output] {
+            Node::Add(l_node, r_node) => {
+                p_x.push_empty_row();
+                p_y.push_empty_row();
+                p_z.push_empty_row();
+
+                let mut row = vec![];
+
+                if let Node::Constant(c) = nodes[*l_node] {
+                    row.extend(vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]);
+                } else if let Node::Constant(c) = nodes[*r_node] {
+                    row.extend(vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]);
+                } else {
+                    // Add(constant, constant) is prevented by the validity
+                    // check, so the only remaining possibility is the case
+                    // Add(non-constant, non-constant)
+                    row.extend(vec![
+                        (F::ONE, *index_map.get(l_node).unwrap()),
+                        (F::ONE, *index_map.get(r_node).unwrap()),
+                    ]);
+                }
+                row.push((-F::ONE, 0));
+                p_add.push_row(row);
+            }
+            Node::Mul(l_node, r_node) => {
+                p_add.push_empty_row();
+
+                if let Node::Constant(c) = nodes[*l_node] {
+                    p_x.push_row(vec![(c, 0)]);
+                    p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                } else if let Node::Constant(c) = nodes[*r_node] {
+                    p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                    p_y.push_row(vec![(c, 0)]);
+                } else {
+                    // Mul(constant, constant) is prevented by the validity
+                    // check, so the only remaining possibility is the case
+                    // Mul(non-constant, non-constant)
+                    p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                    p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                }
+                // TODO important question: is the coefficient -1 or 1? The paper is not clear
+                p_z.push_row(vec![(F::ONE, 0)]);
+            }
+            _ => panic!("The output node must be an addition or multiplication gate"),
+        }
 
         nodes.iter().enumerate().skip(1).for_each(|(i, node)| {
             match node {
@@ -169,8 +250,130 @@ impl<F: PrimeField> LigeroCircuit<F> {
                     p_z.push_empty_row();
                     p_add.push_empty_row();
                 }
-                Node::Constant(_) => {
-                    seen_constants += 1;
+                Node::Add(l_node, r_node) => {
+                    p_x.push_empty_row();
+                    p_y.push_empty_row();
+                    p_z.push_empty_row();
+
+                    let mut row = vec![];
+
+                    if let Node::Constant(c) = nodes[*l_node] {
+                        row.extend(vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]);
+                    } else if let Node::Constant(c) = nodes[*r_node] {
+                        row.extend(vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]);
+                    } else {
+                        // Add(constant, constant) is prevented by the validity
+                        // check, so the only remaining possibility is the case
+                        // Add(non-constant, non-constant)
+                        row.extend(vec![
+                            (F::ONE, *index_map.get(l_node).unwrap()),
+                            (F::ONE, *index_map.get(r_node).unwrap()),
+                        ]);
+                    }
+                    row.push((-F::ONE, *index_map.get(&i).unwrap()));
+                    p_add.push_row(row);
+                }
+                Node::Mul(l_node, r_node) => {
+                    p_add.push_empty_row();
+
+                    if let Node::Constant(c) = nodes[*l_node] {
+                        p_x.push_row(vec![(c, 0)]);
+                        p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                    } else if let Node::Constant(c) = nodes[*r_node] {
+                        p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                        p_y.push_row(vec![(c, 0)]);
+                    } else {
+                        // Mul(constant, constant) is prevented by the validity
+                        // check, so the only remaining possibility is the case
+                        // Mul(non-constant, non-constant)
+                        p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                        p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                    }
+                    // TODO important question: is the coefficient -1 or 1? The paper is not clear
+                    p_z.push_row(vec![(F::ONE, *index_map.get(&i).unwrap())]);
+                }
+                _ => {}
+            }
+        });
+
+        // Padding matrices from 1 + n_i + s rows to m * k
+        let padding = num_cols - p_x.num_rows();
+        p_x.push_empty_rows(padding);
+        p_y.push_empty_rows(padding);
+        p_z.push_empty_rows(padding);
+        p_add.push_empty_rows(padding);
+
+        (p_x, p_y, p_z, p_add)
+    }
+
+    fn generate_matrices(
+        circuit: &ArithmeticCircuit<F>,
+        num_cols: usize,
+        index_map: &HashMap<usize, usize>,
+    ) -> SparseMatrix<F> {
+        let nodes = &circuit.nodes;
+
+        let mut p_x = SparseMatrix::new(num_cols);
+        let mut p_y = SparseMatrix::new(num_cols);
+        let mut p_z = SparseMatrix::new(num_cols);
+        let mut p_add = SparseMatrix::new(num_cols);
+
+        // Adding the constraint output = 1
+        let output = circuit.last();
+
+        match &nodes[output] {
+            Node::Add(l_node, r_node) => {
+                p_x.push_empty_row();
+                p_y.push_empty_row();
+                p_z.push_empty_row();
+
+                let mut row = vec![];
+
+                if let Node::Constant(c) = nodes[*l_node] {
+                    row.extend(vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]);
+                } else if let Node::Constant(c) = nodes[*r_node] {
+                    row.extend(vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]);
+                } else {
+                    // Add(constant, constant) is prevented by the validity
+                    // check, so the only remaining possibility is the case
+                    // Add(non-constant, non-constant)
+                    row.extend(vec![
+                        (F::ONE, *index_map.get(l_node).unwrap()),
+                        (F::ONE, *index_map.get(r_node).unwrap()),
+                    ]);
+                }
+                row.push((-F::ONE, 0));
+                p_add.push_row(row);
+            }
+            Node::Mul(l_node, r_node) => {
+                p_add.push_empty_row();
+
+                if let Node::Constant(c) = nodes[*l_node] {
+                    p_x.push_row(vec![(c, 0)]);
+                    p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                } else if let Node::Constant(c) = nodes[*r_node] {
+                    p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                    p_y.push_row(vec![(c, 0)]);
+                } else {
+                    // Mul(constant, constant) is prevented by the validity
+                    // check, so the only remaining possibility is the case
+                    // Mul(non-constant, non-constant)
+                    p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                    p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
+                }
+                // TODO important question: is the coefficient -1 or 1? The paper is not clear
+                p_z.push_row(vec![(F::ONE, 0)]);
+            }
+            _ => panic!("The output node must be an addition or multiplication gate"),
+        }
+
+        nodes.iter().enumerate().skip(1).for_each(|(i, node)| {
+            match node {
+                Node::Variable => {
+                    p_x.push_empty_row();
+                    p_y.push_empty_row();
+                    p_z.push_empty_row();
+                    p_add.push_empty_row();
                 }
                 Node::Add(l_node, r_node) => {
                     p_x.push_empty_row();
@@ -180,19 +383,19 @@ impl<F: PrimeField> LigeroCircuit<F> {
                     let mut row = vec![];
 
                     if let Node::Constant(c) = nodes[*l_node] {
-                        row.extend(vec![(c, 0), (F::ONE, *r_node - seen_constants)]);
+                        row.extend(vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]);
                     } else if let Node::Constant(c) = nodes[*r_node] {
-                        row.extend(vec![(c, 0), (F::ONE, *l_node - seen_constants)]);
+                        row.extend(vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]);
                     } else {
                         // Add(constant, constant) is prevented by the validity
                         // check, so the only remaining possibility is the case
                         // Add(non-constant, non-constant)
                         row.extend(vec![
-                            (F::ONE, *l_node - seen_constants),
-                            (F::ONE, *r_node - seen_constants),
+                            (F::ONE, *index_map.get(l_node).unwrap()),
+                            (F::ONE, *index_map.get(r_node).unwrap()),
                         ]);
                     }
-                    row.push((-F::ONE, i - seen_constants));
+                    row.push((-F::ONE, *index_map.get(&i).unwrap()));
                     p_add.push_row(row);
                 }
                 Node::Mul(l_node, r_node) => {
@@ -200,24 +403,30 @@ impl<F: PrimeField> LigeroCircuit<F> {
 
                     if let Node::Constant(c) = nodes[*l_node] {
                         p_x.push_row(vec![(c, 0)]);
-                        p_y.push_row(vec![(F::ONE, *r_node - seen_constants)]);
+                        p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
                     } else if let Node::Constant(c) = nodes[*r_node] {
-                        p_x.push_row(vec![(F::ONE, *l_node - seen_constants)]);
+                        p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
                         p_y.push_row(vec![(c, 0)]);
                     } else {
                         // Mul(constant, constant) is prevented by the validity
                         // check, so the only remaining possibility is the case
                         // Mul(non-constant, non-constant)
-                        p_x.push_row(vec![(F::ONE, *l_node - seen_constants)]);
-                        p_y.push_row(vec![(F::ONE, *r_node - seen_constants)]);
+                        p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
+                        p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
                     }
                     // TODO important question: is the coefficient -1 or 1? The paper is not clear
-                    p_z.push_row(vec![(-F::ONE, i - seen_constants)]);
+                    p_z.push_row(vec![(F::ONE, *index_map.get(&i).unwrap())]);
                 }
+                _ => {}
             }
         });
 
-        // TODO add row with the constraint output = 0
+        // Padding matrices from 1 + n_i + s rows to m * k
+        let padding = num_cols - p_x.num_rows();
+        p_x.push_empty_rows(padding);
+        p_y.push_empty_rows(padding);
+        p_z.push_empty_rows(padding);
+        p_add.push_empty_rows(padding);
 
         // Constructing
         //      [   |   -P_x    ]
@@ -225,9 +434,9 @@ impl<F: PrimeField> LigeroCircuit<F> {
         // A =  [   |   -P_z    ]
         //      [---------------]
         //      [ 0 |   P_add   ]
-        let upper_right = -p_x.h_stack(&p_y).h_stack(&p_z);
+        let upper_right = -p_x.v_stack(p_y).v_stack(p_z);
         let upper = SparseMatrix::identity(3 * num_cols).h_stack(&upper_right);
-        let lower = SparseMatrix::zero(num_cols, num_cols).h_stack(&p_add);
+        let lower = SparseMatrix::zero(num_cols, 3 * num_cols).h_stack(&p_add);
         upper.v_stack(lower)
     }
 

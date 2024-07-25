@@ -5,14 +5,13 @@ use ark_poly::{
     Polynomial,
 };
 use ark_poly_commit::linear_codes::calculate_t;
-use ark_std::rand::seq::index;
 use itertools::izip;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
     matrices::{DenseMatrix, SparseMatrix},
-    utils::get_distinct_indices_from_sponge,
+    utils::get_distinct_indices_from_prng,
 };
 
 #[cfg(test)]
@@ -36,7 +35,7 @@ pub struct LigeroCircuit<F: PrimeField> {
     // A =  [   |   -P_z    ]
     //      [---------------]
     //      [ 0 |   P_add   ]
-    pub(crate) a: SparseMatrix<F>,
+    a: SparseMatrix<F>,
 
     /// Number of rows of the `P`` matrices prior to encoding
     m: usize,
@@ -60,10 +59,6 @@ pub struct LigeroCircuit<F: PrimeField> {
 
     /// Intermediate FFT domain for the quadratic-constraints test, size: `2 * k`
     intermediate_domain: GeneralEvaluationDomain<F>,
-
-    /// Map sending the original index of a node to its filtered index (the
-    /// position where it lands after removing all constants but the initial 1)
-    index_map: HashMap<usize, usize>,
 }
 
 pub struct LigeroProof<F: PrimeField> {
@@ -107,9 +102,10 @@ impl<F: PrimeField> LigeroCircuit<F> {
         let (m, k) = Self::compute_dimensions(sol_vec_length);
         let (n, t) = Self::reed_solomon_parameters(m, k, lambda);
 
-        // Constructing the index map from unfiltered to filtered indices
-        let mut seen_constants = 0;
+        // Map sending the original index of a node to its filtered index (the
+        // position where it lands after removing all constants but the initial 1)
         let mut index_map = HashMap::new();
+        let mut seen_constants = 0;
 
         // The constant 1 remains at position 0
         index_map.insert(0, 0);
@@ -149,7 +145,6 @@ impl<F: PrimeField> LigeroCircuit<F> {
             large_domain,
             small_domain,
             intermediate_domain,
-            index_map,
         }
     }
 
@@ -231,7 +226,6 @@ impl<F: PrimeField> LigeroCircuit<F> {
                     p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
                     p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
                 }
-                // TODO important question: is the coefficient -1 or 1? The paper is not clear
                 p_z.push_row(vec![(F::ONE, 0)]);
             }
             _ => panic!("The output node must be an addition or multiplication gate"),
@@ -284,7 +278,6 @@ impl<F: PrimeField> LigeroCircuit<F> {
                         p_x.push_row(vec![(F::ONE, *index_map.get(l_node).unwrap())]);
                         p_y.push_row(vec![(F::ONE, *index_map.get(r_node).unwrap())]);
                     }
-                    // TODO important question: is the coefficient -1 or 1? The paper is not clear
                     p_z.push_row(vec![(F::ONE, *index_map.get(&i).unwrap())]);
                 }
                 _ => {}
@@ -344,6 +337,10 @@ impl<F: PrimeField> LigeroCircuit<F> {
                     x.push(sol[*left]);
                     y.push(sol[*right]);
                     z.push(*val);
+                } else {
+                    x.push(F::ZERO);
+                    y.push(F::ZERO);
+                    z.push(F::ZERO);
                 }
             });
 
@@ -383,8 +380,6 @@ impl<F: PrimeField> LigeroCircuit<F> {
             .collect();
 
         let linear_constraints_proof = self.prove_linear_constraints(&u_polys, sponge);
-
-        // TODO remember to check the degree bound on the verifier side
 
         let mut u_xyz_polys = u_polys;
         u_xyz_polys.truncate(3 * self.m);
@@ -430,7 +425,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
         let r_interleaved: Vec<F> = sponge.squeeze_field_elements(4 * self.m);
         let w = self.reed_solomon(interleaved_proof);
 
-        let queried_columns = get_distinct_indices_from_sponge(self.n, self.t, sponge);
+        let queried_columns = get_distinct_indices_from_prng(self.n, self.t);
 
         // Testing w = r^T * U at a few random positions
         queried_columns.into_iter().all(|col|
@@ -482,10 +477,8 @@ impl<F: PrimeField> LigeroCircuit<F> {
             return false;
         }
 
-        // TODO check whether the previous set of indices could be reused
-        let queried_columns: HashSet<usize> = HashSet::from_iter(
-            get_distinct_indices_from_sponge(self.n, self.t, sponge).into_iter(),
-        );
+        let queried_columns: HashSet<usize> =
+            HashSet::from_iter(get_distinct_indices_from_prng(self.n, self.t).into_iter());
 
         let mut q_coeffs = linear_proof.coeffs.clone();
         q_coeffs.resize(2 * self.k, F::ZERO);
@@ -509,6 +502,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
             (j, point, eval)
         });
 
+        // sum_i^m r_i(eta_j) * U_{i, j} = q(eta_j)
         q_evals.all(|(j, point, eval)| {
             r_polys
                 .iter()
@@ -560,7 +554,7 @@ impl<F: PrimeField> LigeroCircuit<F> {
         // Cofactor of the intermediate domain inside the large domain,
         let cofactor = self.n / (2 * self.k);
 
-        let queried_columns = get_distinct_indices_from_sponge(self.n, self.t, sponge);
+        let queried_columns = get_distinct_indices_from_prng(self.n, self.t);
 
         queried_columns.into_iter().all(|col| {
             // Computing the left-hand side p_0(large_domain[j])

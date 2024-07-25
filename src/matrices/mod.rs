@@ -80,6 +80,7 @@ impl<F: PrimeField> SparseMatrix<F> {
             own_row.extend(other_row.iter().map(|(v, j)| (*v, j + h_shift)));
         }
 
+        self.num_cols += other.num_cols;
         self
     }
 

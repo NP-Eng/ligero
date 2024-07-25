@@ -1,11 +1,17 @@
 use std::collections::HashMap;
 
 use crate::{
-    arithmetic_circuit::ArithmeticCircuit, ligero::LigeroCircuit, matrices::SparseMatrix,
+    arithmetic_circuit::ArithmeticCircuit,
+    ligero::LigeroCircuit,
+    matrices::{DenseMatrix, SparseMatrix},
     DEFAULT_SECURITY_LEVEL,
 };
 use ark_bls12_377::Fq;
+use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, CryptographicSponge};
 use ark_ff::Field;
+use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly_commit::test_sponge;
+use ark_std::test_rng;
 
 // TODO remove
 fn print_first_discrepancy(a: &SparseMatrix<Fq>, b: &SparseMatrix<Fq>) {
@@ -97,11 +103,10 @@ fn generate_bls12_377_circuit() -> ArithmeticCircuit<Fq> {
 
 #[test]
 fn test_construction_for_bls12_377() {
-    
     let circuit = generate_bls12_377_circuit();
 
     let output_node = circuit.last();
-    
+
     let (m, k) = (4, 4);
 
     let p_x = SparseMatrix::from_rows(
@@ -191,3 +196,55 @@ fn test_construction_for_bls12_377() {
         expected_a
     );
 }
+
+#[test]
+fn test_subprotocol_interleaved() {
+    let (k, m, n, t) = (4, 5, 16, 9);
+
+    // Generating empty circuit - only m is relevant
+    let ligero_circuit = LigeroCircuit {
+        circuit: ArithmeticCircuit::<Fq>::new(),
+        output_node: 0,
+        a: SparseMatrix::zero(0, 0),
+        m,
+        k,
+        n,
+        t,
+        large_domain: GeneralEvaluationDomain::new(n).unwrap(),
+        small_domain: GeneralEvaluationDomain::new(k).unwrap(),
+        intermediate_domain: GeneralEvaluationDomain::new(1).unwrap(),
+        index_map: HashMap::new(),
+    };
+
+    let mut sponge: PoseidonSponge<Fq> = test_sponge();
+    sponge.absorb(&b"Liger0 is the b3st!".to_vec());
+
+    let r = sponge.clone().squeeze_field_elements(4 * m);
+
+    let preenc_u = DenseMatrix::rand(4 * m, k, &mut test_rng());
+
+    let u = DenseMatrix::new(
+        preenc_u
+            .rows
+            .clone()
+            .into_iter()
+            .map(|row| ligero_circuit.reed_solomon(row))
+            .collect::<Vec<_>>(),
+    );
+
+    let proof = ligero_circuit.prove_interleaved(&preenc_u, &mut sponge.clone());
+
+    // Expected proof is produced
+    assert_eq!(proof.clone(), preenc_u.row_mul(&r));
+
+    // Test with valid proof
+    assert!(ligero_circuit.verify_interleaved(proof.clone(), &u, &mut sponge.clone()));
+
+    // Test with invalid proof
+    let mut invalid_proof = proof.clone();
+    invalid_proof[0] += Fq::ONE;
+    assert!(!ligero_circuit.verify_interleaved(invalid_proof, &u, &mut sponge.clone()));
+}
+
+#[test]
+fn test_subprotocol_linear() {}

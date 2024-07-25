@@ -1,6 +1,7 @@
 use std::ops::Neg;
 
 use ark_ff::PrimeField;
+use ark_std::rand::Rng;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SparseMatrix<F> {
@@ -143,6 +144,14 @@ impl<F: PrimeField> DenseMatrix<F> {
         }
 
         result
+    }
+
+    pub(crate) fn rand(num_rows: usize, num_cols: usize, rng: &mut impl Rng) -> Self {
+        Self {
+            rows: (0..num_rows)
+                .map(|_| (0..num_cols).map(|_| F::rand(rng)).collect::<Vec<F>>())
+                .collect(),
+        }
     }
 }
 

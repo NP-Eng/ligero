@@ -125,6 +125,7 @@ impl<F: PrimeField> Neg for SparseMatrix<F> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct DenseMatrix<F> {
     pub(crate) rows: Vec<Vec<F>>,
 }

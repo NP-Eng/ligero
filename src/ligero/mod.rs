@@ -1,4 +1,4 @@
-use ark_crypto_primitives::sponge::CryptographicSponge;
+use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
 use ark_ff::PrimeField;
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
@@ -79,7 +79,7 @@ pub struct LigeroProof<F: PrimeField> {
     quadratic_constraints_proof: DensePolynomial<F>,
 }
 
-impl<F: PrimeField> LigeroCircuit<F> {
+impl<F: PrimeField + Absorb> LigeroCircuit<F> {
     pub fn new(circuit: ArithmeticCircuit<F>, output_node: usize, lambda: usize) -> Self {
         // TODO handle this case gracefully: add constant 1 at the beginning of the the circuit
         if circuit.nodes[0] != Node::Constant(F::ONE) {
@@ -359,9 +359,8 @@ impl<F: PrimeField> LigeroCircuit<F> {
         // TODO check if the coefficient vector r needs to be distinct for each
         // sub-protocol
 
-        let interleaved_proof = self.prove_interleaved(&preenc_u, sponge);
-
         let u_polynomial_coeffs: Vec<Vec<F>> = preenc_u
+            .clone()
             .rows
             .into_iter()
             .map(|row| self.reed_solomon_interpolate(row))
@@ -378,6 +377,10 @@ impl<F: PrimeField> LigeroCircuit<F> {
             .into_iter()
             .map(|row| DensePolynomial::from_coefficients_vec(row))
             .collect();
+
+        sponge.absorb(&u.rows.concat());
+
+        let interleaved_proof = self.prove_interleaved(&preenc_u, sponge);
 
         let linear_constraints_proof = self.prove_linear_constraints(&u_polys, sponge);
 
@@ -401,6 +404,8 @@ impl<F: PrimeField> LigeroCircuit<F> {
             linear_constraints_proof,
             quadratic_constraints_proof,
         } = proof;
+
+        sponge.absorb(&u.rows.concat());
 
         self.verify_interleaved(interleaved_proof, &u, sponge)
             && self.verify_linear(linear_constraints_proof, &u, sponge)

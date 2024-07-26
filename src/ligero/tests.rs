@@ -1,8 +1,14 @@
 use crate::{
-    arithmetic_circuit::tests::generate_bls12_377_circuit, ligero::LigeroCircuit,
-    matrices::SparseMatrix, DEFAULT_SECURITY_LEVEL,
+    arithmetic_circuit::tests::{
+        generate_3_by_3_determinant_circuit, generate_bls12_377_circuit,
+        generate_lemniscate_circuit,
+    },
+    ligero::LigeroCircuit,
+    matrices::SparseMatrix,
+    DEFAULT_SECURITY_LEVEL,
 };
 use ark_bls12_377::{Fq, G1Affine};
+use ark_bn254::Fr;
 use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
@@ -129,6 +135,49 @@ fn test_prove_and_verify_bls12_377() {
     let sponge: PoseidonSponge<Fq> = test_sponge();
 
     let proof = ligero_circuit.prove(vec![(1, x), (2, y)], &mut sponge.clone());
+
+    assert!(ligero_circuit.verify(proof, &mut sponge.clone()));
+}
+
+#[test]
+fn test_prove_and_verify_lemniscat() {
+    let circuit = generate_lemniscate_circuit();
+    let output_node = circuit.last();
+    let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);
+
+    let sponge: PoseidonSponge<Fr> = test_sponge();
+
+    let proof = ligero_circuit.prove(
+        vec![(1, Fr::from(8u8)), (2, Fr::from(4u8))],
+        &mut sponge.clone(),
+    );
+
+    assert!(ligero_circuit.verify(proof, &mut sponge.clone()));
+}
+
+#[test]
+fn test_prove_and_verify_3_by_3_determinant() {
+    let circuit = generate_3_by_3_determinant_circuit();
+    let output_node = circuit.last();
+    let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);
+
+    let sponge: PoseidonSponge<Fr> = test_sponge();
+
+    let vars = vec![
+        (1, Fr::from(2)),
+        (2, Fr::from(0)),
+        (3, Fr::from(-1)),
+        (4, Fr::from(3)),
+        (5, Fr::from(5)),
+        (6, Fr::from(2)),
+        (7, Fr::from(-4)),
+        (8, Fr::from(1)),
+        (9, Fr::from(4)),
+    ];
+    let det = Fr::from(13);
+    let valid_assignment = [vars, vec![(10, det)]].concat();
+
+    let proof = ligero_circuit.prove(valid_assignment.clone(), &mut sponge.clone());
 
     assert!(ligero_circuit.verify(proof, &mut sponge.clone()));
 }

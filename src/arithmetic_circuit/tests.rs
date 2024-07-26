@@ -44,6 +44,61 @@ pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
     //     10: node(9) + node(0)
 }
 
+pub(crate) fn generate_lemniscate_circuit() -> ArithmeticCircuit<FrBN> {
+    let mut circuit = ArithmeticCircuit::new();
+
+    // Ligero circuits must start with a constant 1
+    let one = circuit.constant(FrBN::ONE);
+
+    let x = circuit.variable();
+    let y = circuit.variable();
+
+    let a = circuit.constant(FrBN::from(120));
+    let b = circuit.constant(FrBN::from(80));
+
+    let x_2 = circuit.mul(x, x);
+    let y_2 = circuit.mul(y, y);
+
+    let a_x_2 = circuit.mul(a, x_2);
+    let b_y_2 = circuit.mul(b, y_2);
+    let minus_a_x_2 = circuit.minus(a_x_2);
+
+    let x_2_plus_y_2 = circuit.add(x_2, y_2);
+    let b_y_2_minus_a_x_2 = circuit.add(b_y_2, minus_a_x_2);
+
+    let x_2_plus_y_2_2 = circuit.mul(x_2_plus_y_2, x_2_plus_y_2);
+
+    circuit.add_nodes([x_2_plus_y_2_2, b_y_2_minus_a_x_2, one]);
+    circuit
+}
+
+pub(crate) fn generate_3_by_3_determinant_circuit() -> ArithmeticCircuit<FrBN> {
+    let mut circuit = ArithmeticCircuit::new();
+
+    // Ligero circuits must start with a constant 1
+    let one = circuit.constant(FrBN::ONE);
+
+    let vars = circuit.variables(9);
+    let det = circuit.variable();
+
+    let aei = circuit.mul_nodes([vars[0], vars[4], vars[8]]);
+    let bfg = circuit.mul_nodes([vars[1], vars[5], vars[6]]);
+    let cdh = circuit.mul_nodes([vars[2], vars[3], vars[7]]);
+
+    let ceg = circuit.mul_nodes([vars[2], vars[4], vars[6]]);
+    let bdi = circuit.mul_nodes([vars[1], vars[3], vars[8]]);
+    let afh = circuit.mul_nodes([vars[0], vars[5], vars[7]]);
+
+    let sum1 = circuit.add_nodes([aei, bfg, cdh]);
+    let sum2 = circuit.add_nodes([ceg, bdi, afh]);
+
+    let minus_sum2 = circuit.minus(sum2);
+    let minus_det = circuit.minus(det);
+
+    circuit.add_nodes([sum1, minus_sum2, minus_det, one]);
+    circuit
+}
+
 #[test]
 fn test_add_constants() {
     let mut circuit = ArithmeticCircuit::new();
@@ -267,6 +322,53 @@ fn test_bls12_377_circuit() {
     let valid_assignment = vec![(1, x), (2, y)];
     let output_node = circuit.last();
     let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
-    circuit.print_evaluation(valid_assignment, output_node);
     assert_eq!(evaluation[output_node].unwrap(), FqBLS::ONE);
+}
+
+#[test]
+fn test_lemniscate_circuit() {
+    let circuit = generate_lemniscate_circuit();
+
+    let x = FrBN::from(8);
+    let y = FrBN::from(4);
+
+    let valid_assignment = vec![(1, x), (2, y)];
+    let output_node = circuit.last();
+    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
+    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
+}
+
+#[test]
+fn test_generate_3_by_3_determinant_circuit() {
+    let circuit = generate_3_by_3_determinant_circuit();
+
+    let vars = (1..=9)
+        .map(|i| (i, FrBN::from(i as u64)))
+        .collect::<Vec<_>>();
+    let det = FrBN::from(0);
+    let valid_assignment = [vars, vec![(10, det)]].concat();
+
+    let output_node = circuit.last();
+    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
+    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
+
+    let circuit = generate_3_by_3_determinant_circuit();
+
+    let vars = vec![
+        (1, FrBN::from(2)),
+        (2, FrBN::from(0)),
+        (3, FrBN::from(-1)),
+        (4, FrBN::from(3)),
+        (5, FrBN::from(5)),
+        (6, FrBN::from(2)),
+        (7, FrBN::from(-4)),
+        (8, FrBN::from(1)),
+        (9, FrBN::from(4)),
+    ];
+    let det = FrBN::from(13);
+    let valid_assignment = [vars, vec![(10, det)]].concat();
+
+    let output_node = circuit.last();
+    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
+    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
 }

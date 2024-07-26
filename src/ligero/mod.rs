@@ -91,9 +91,9 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         //  - disallow add(const, const) or mul(const, const)
 
         // More efficient way to compute:
-        //  1 + circuit.num_variables() - circuit.num_gates()
+        //  1 + circuit.num_variables() + circuit.num_gates()
         // or, in the notation of the paper,
-        //  1 - n_i - s.
+        //  1 + n_i + s = m * k
         // The first 1 comes from the constant 1, which is does not appear in
         // the less-general version in the article.
         let sol_vec_length = 1 + circuit.num_nodes() - circuit.num_constants();
@@ -482,9 +482,6 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             return false;
         }
 
-        let queried_columns: HashSet<usize> =
-            HashSet::from_iter(get_distinct_indices_from_prng(self.n, self.t).into_iter());
-
         let mut q_coeffs = linear_proof.coeffs.clone();
         q_coeffs.resize(2 * self.k, F::ZERO);
         let intermediate_evals = self.intermediate_domain.fft(&q_coeffs);
@@ -496,6 +493,9 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         if intermediate_evals.iter().step_by(2).sum::<F>() != F::ZERO {
             return false;
         }
+
+        let queried_columns: HashSet<usize> =
+            HashSet::from_iter(get_distinct_indices_from_prng(self.n, self.t).into_iter());
 
         let mut q_evals = queried_columns.into_iter().map(|j| {
             let point = self.large_domain.element(j);
@@ -542,6 +542,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
     ) -> bool {
         let r_quadratic: Vec<F> = sponge.squeeze_field_elements(self.m);
 
+        // q(v) = sum_{i = 1}^{3m} r_i * (p_i_x(v) * p_i_y(v) - p_i_z(v))
         if quadratic_proof.degree() >= 2 * self.k - 1 {
             return false;
         }

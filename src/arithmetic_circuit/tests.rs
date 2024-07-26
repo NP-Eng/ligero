@@ -44,6 +44,7 @@ pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
     //     10: node(9) + node(0)
 }
 
+/// (x^2 + y^2)^2 - 120x^2 - 80y^2 + 1 = 1
 pub(crate) fn generate_lemniscate_circuit() -> ArithmeticCircuit<FrBN> {
     let mut circuit = ArithmeticCircuit::new();
 
@@ -322,6 +323,7 @@ fn test_bls12_377_circuit() {
     let valid_assignment = vec![(1, x), (2, y)];
     let output_node = circuit.last();
     let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
+    circuit.print_evaluation(valid_assignment, output_node);
     assert_eq!(evaluation[output_node].unwrap(), FqBLS::ONE);
 }
 

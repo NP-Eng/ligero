@@ -140,7 +140,7 @@ fn test_prove_and_verify_bls12_377() {
 }
 
 #[test]
-fn test_prove_and_verify_lemniscat() {
+fn test_prove_and_verify_lemniscate() {
     let circuit = generate_lemniscate_circuit();
     let output_node = circuit.last();
     let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);

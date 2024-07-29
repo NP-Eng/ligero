@@ -1,4 +1,5 @@
 pub mod arithmetic_circuit;
+pub mod circuit_builder;
 pub mod ligero;
 pub(crate) mod matrices;
 pub mod reader;

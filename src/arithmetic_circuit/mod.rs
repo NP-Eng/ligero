@@ -26,9 +26,9 @@ pub struct ArithmeticCircuit<F: PrimeField> {
     // List of nodes of the circuit
     pub(crate) nodes: Vec<Node<F>>,
     // Hash map of constants defined in the circuit in order to avoid duplication
-    constants: HashMap<F, usize>,
+    pub(crate) constants: HashMap<F, usize>,
     // Big-endian bit decomposition of F::MODULUS - 1, without initial zeros
-    unit_group_bits: Option<Vec<bool>>,
+    pub(crate) unit_group_bits: Option<Vec<bool>>,
 }
 
 impl<F: PrimeField> ArithmeticCircuit<F> {
@@ -266,6 +266,10 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 
     pub fn evaluate(&self, vars: Vec<(usize, F)>, node: usize) -> F {
         self.evaluate_full(vars, node)[node].unwrap()
+    }
+
+    pub fn evaluate_last(&self, vars: Vec<(usize, F)>) -> F {
+        self.evaluate(vars, self.last())
     }
 
     fn print_evaluation(&self, vars: Vec<(usize, F)>, node: usize) {

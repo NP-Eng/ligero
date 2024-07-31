@@ -1,13 +1,18 @@
+use std::collections::HashMap;
+
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
 
 use crate::{
-    arithmetic_circuit::ArithmeticCircuit, reader::read_constraint_system, TEST_DATA_PATH,
+    arithmetic_circuit::ArithmeticCircuit, expression::Expression, reader::read_constraint_system,
+    TEST_DATA_PATH,
 };
 
 use ark_bls12_377::{Fq as FqBLS, G1Affine};
 use ark_bn254::Fr as FrBN;
+
+use super::Node;
 
 // Defining equation of BLS12-377: y^2 = x^3 + 1 (over Fq)
 pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
@@ -171,9 +176,6 @@ fn test_indicator() {
     let a = circuit.variable();
     let b = circuit.indicator(a);
 
-    // TODO remove
-    circuit.print_evaluation(vec![(a, FrBN::rand(&mut test_rng()))], circuit.last());
-
     assert_eq!(
         circuit.evaluate(vec![(a, FrBN::rand(&mut test_rng()))], b),
         FrBN::from(1)
@@ -191,10 +193,6 @@ fn test_multiplication() {
 
     let (a, b, c) = (FrBN::from(6), FrBN::from(3), FrBN::from(2));
     let valid_assignment = vec![(1, a), (2, b), (3, c)];
-
-    // TODO remove
-    // circuit.print_evaluation(valid_assignment.clone(), circuit.last());
-    println!("{circuit}");
 
     assert_eq!(
         circuit.evaluate(valid_assignment, circuit.last()),
@@ -374,3 +372,88 @@ fn test_generate_3_by_3_determinant_circuit() {
     let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
     assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
 }
+
+#[test]
+pub fn test_constant_filtering() {
+    let nodes: Vec<Node<FqBLS>> = vec![
+        Node::Variable,                  // 0  -> 0
+        Node::Constant(FqBLS::from(3)),  // 1  -> 1
+        Node::Constant(FqBLS::from(3)),  // 2  ----
+        Node::Variable,                  // 3  -> 2
+        Node::Mul(18, 2),                // 4  -> 3
+        Node::Constant(-FqBLS::from(1)), // 5  -> 4
+        Node::Mul(4, 1),                 // 6  -> 5
+        Node::Mul(2, 2),                 // 7  -> 6
+        Node::Constant(FqBLS::from(4)),  // 8  -> 7
+        Node::Mul(7, 7),                 // 9  -> 8
+        Node::Constant(-FqBLS::from(1)), // 10 ----
+        Node::Add(8, 5),                 // 11 -> 9
+        Node::Add(8, 14),                // 12 -> 10
+        Node::Mul(17, 10),               // 13 -> 11
+        Node::Constant(FqBLS::from(3)),  // 14 -----
+        Node::Constant(-FqBLS::from(2)), // 15 -> 12
+        Node::Variable,                  // 16 -> 13
+        Node::Constant(-FqBLS::from(1)), // 17 -----
+        Node::Add(12, 5),                // 18 -> 14
+    ];
+
+    let filtered_nodes: Vec<Node<FqBLS>> = vec![
+        Node::Variable,                  // 0  -> 0
+        Node::Constant(FqBLS::from(3)),  // 1  -> 1
+        Node::Variable,                  // 3  -> 2
+        Node::Mul(14, 1),                // 4  -> 3
+        Node::Constant(-FqBLS::from(1)), // 5  -> 4
+        Node::Mul(3, 1),                 // 6  -> 5
+        Node::Mul(1, 1),                 // 7  -> 6
+        Node::Constant(FqBLS::from(4)),  // 8  -> 7
+        Node::Mul(6, 6),                 // 9  -> 8
+        Node::Add(7, 4),                 // 11 -> 9
+        Node::Add(7, 1),                 // 12 -> 10
+        Node::Mul(4, 4),                 // 13 -> 11
+        Node::Constant(-FqBLS::from(2)), // 15 -> 12
+        Node::Variable,                  // 16 -> 13
+        Node::Add(10, 4),                // 18 -> 14
+    ];
+
+    let circuit = ArithmeticCircuit {
+        nodes,
+        constants: HashMap::new(),
+        unit_group_bits: None,
+    };
+
+    assert_eq!(circuit.filter_constants().nodes, filtered_nodes);
+}
+
+// circuit.evaluate(vec![(2, F::form(10), (13, F::form(10)), (1, F::form(10))]);
+
+// let x = circuit.variable()
+// ...
+// let y = circuit.variable()
+// ..
+// let z = circuit.variable()
+// circuit.evaluate(vec![(x, F::form(10), (y, F::form(10)), (z, F::form(10))]);
+
+// circuit.evaluate
+
+// Option B
+// - Circuit variables have IDs, old nice syntax still possible but new one too
+// - expression.to_circuit can simply return ArithmeticCircuit (because the ArithmeticCircuit variables will have the IDs)
+
+// 1. Circuit has a map from variable IDs to indices
+// 2. circuit.new_variable_with_label(label) -> index (to keep the nice syntax)
+//    - if there is already a variable with the same label, panic
+// 3. circuit.new_variable() -> index (to keep the nice syntax); Has to create a
+//    label, e.g. "var_N" where is the number of already existing variables
+//    Note this cannot be done for Expression, as it doesn't know how many vars
+//    there are already
+//    What happens if there is already a variable with that name? panic
+// 4. circuit.get_variable("label") -> index
+//
+// 5. evaluate -> F                        evaluate_labeled
+//        |                                     |
+//        v                                     v
+//    evaluate_full -> Vec<F>     <----  evaluate_full_labeled {labels_to_idx evaluate_full}
+//        ^
+//        |
+//    print_evaluation   <------------- print_evaluation_labeled
+// 6. Update any methods that print nodes to include the label

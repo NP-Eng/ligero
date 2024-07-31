@@ -1,12 +1,11 @@
-use ark_crypto_primitives::crh::sha256::digest::typenum::bit;
-use ark_ff::{BigInteger, PrimeField};
-use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
+use ark_ff::PrimeField;
 use itertools::Itertools;
 use std::{
     collections::HashMap,
     fmt::Display,
-    iter::Sum,
-    ops::{Add, BitXor, Mul, Neg, Sub},
+    hash::Hash,
+    iter::{Product, Sum},
+    ops::{Add, AddAssign, BitXor, BitXorAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     rc::Rc,
 };
 
@@ -16,13 +15,30 @@ use crate::arithmetic_circuit::Node;
 #[cfg(test)]
 pub mod tests;
 
-// Utilities that expose a user-friendly way to construct arithmetic circuits,
-// with syntax along the lines of:
-// let x = Expression::Variable(0);
-// let y = Expression::Variable(1);
-// let output = y^2 - (x^2 + x + 1) // 0 if (x, y) are in the corresponding elliptic curve!
+/// Utilities that expose a user-friendly way to construct arithmetic circuits,
+/// with syntax along the lines of:
+/// let x = Expression::Variable(0);
+/// let y = Expression::Variable(1);
+/// let output = y^2 - (x^2 + x + 1) // 0 if (x, y) are in the corresponding elliptic curve!
 
-enum ExpressionInner<F> {
+/// Syntax summary:
+/// - Expression::variable(id) creates a variable with the given ID.
+///
+/// - Expression::constant(value) creates a constant with the given F value.
+///
+/// - +, -, *, ^ are overloaded to mean addition, subtraction, multiplication, and exponentiation of expressions
+///   Their assigning counterparts +=, -=, *=, ^= are also overloaded.
+///
+/// - Constants in the form of F can be used as operands on the right-hand side only.
+///   This is due to the implementation for i32 from the next point.
+///   E.g.: F::from(3) * exp, F::ONE * exp, and exp * F::from(3) are all valid
+///   However, 3 * exp, -5 * exp, and exp * 3 are not.
+///
+/// - Constants in the form of i32 (where F: From<i32>) can be used as operands on the left-hand side only.
+///   This is due to i32 and PrimeField both being foreign types.
+///   E.g. 1 + exp and -5 * exp are both valid, equivalent to F::from(1) + exp and F::from(-5) * exp, respectively.
+///   However, exp + 1, exp - 3 and exp * -5 are not.
+enum ExpressionInner<F: PrimeField> {
     Variable(usize), // ID
     Constant(F),
     Add(Expression<F>, Expression<F>),
@@ -31,18 +47,18 @@ enum ExpressionInner<F> {
 
 // New type pattern necessary so that we can implement operators such as +,
 // which we can't directly do on the foreign type Rc<ExpressionInner<F>>
-struct Expression<F>(Rc<ExpressionInner<F>>);
+pub struct Expression<F: PrimeField>(Rc<ExpressionInner<F>>);
 
 impl<F: PrimeField> Expression<F> {
-    fn constant(value: F) -> Self {
+    pub fn constant(value: F) -> Self {
         Expression(Rc::new(ExpressionInner::Constant(value)))
     }
 
-    fn variable(id: usize) -> Self {
+    pub fn variable(id: usize) -> Self {
         Expression(Rc::new(ExpressionInner::Variable(id)))
     }
 
-    fn to_arithmetic_circuit(&self) -> ArithmeticCircuit<F> {
+    pub fn to_arithmetic_circuit(&self) -> ArithmeticCircuit<F> {
         let mut nodes = HashMap::new();
         self.update_map(&mut nodes);
 
@@ -75,30 +91,16 @@ impl<F: PrimeField> Expression<F> {
             }
         }
 
-        let constants = nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, node)| match node {
-                Node::Constant(value) => Some((*value, i)),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>();
-
         ArithmeticCircuit {
             nodes,
-            constants,
-            unit_group_bits: Option::None,
+            constants: HashMap::new(),
+            unit_group_bits: None,
         }
+        .filter_constants()
     }
 
     fn pointer(&self) -> usize {
         self.0.as_ref() as *const _ as usize
-    }
-
-    fn to_map(&self) -> HashMap<usize, (usize, Node<F>)> {
-        let mut nodes = HashMap::new();
-        self.update_map(&mut nodes);
-        nodes
     }
 
     fn update_map(&self, nodes: &mut HashMap<usize, (usize, Node<F>)>) {
@@ -131,30 +133,52 @@ impl<F: PrimeField> Expression<F> {
         }
     }
 
-    fn scalar_product(a: Vec<Expression<F>>, b: Vec<Expression<F>>) -> Expression<F> {
+    pub fn scalar_product(a: Vec<Expression<F>>, b: Vec<Expression<F>>) -> Expression<F> {
         a.into_iter().zip(b.into_iter()).map(|(a, b)| a * b).sum()
     }
 
-    fn sparse_scalar_product(a: &Vec<(F, usize)>, b: &Vec<Expression<F>>) -> Expression<F> {
+    pub fn sparse_scalar_product(a: &Vec<(F, usize)>, b: &Vec<Expression<F>>) -> Expression<F> {
         a.into_iter()
             .map(|(a, i)| b[*i].clone() * *a)
             .collect::<Vec<_>>()
             .into_iter()
             .sum()
     }
+
+    pub fn pow(self, rhs: usize) -> Self {
+        self ^ rhs
+    }
+
+    pub fn pow_assign(&mut self, rhs: usize) {
+        *self ^= rhs;
+    }
 }
 
-impl<F> Clone for Expression<F> {
+impl<F: PrimeField> Clone for Expression<F> {
     fn clone(&self) -> Self {
         Expression(Rc::clone(&self.0))
     }
 }
 
-impl<F> Add for Expression<F> {
+impl<F: PrimeField> Add for Expression<F> {
     type Output = Expression<F>;
 
     fn add(self, rhs: Self) -> Self::Output {
         Expression(Rc::new(ExpressionInner::Add(self.clone(), rhs.clone())))
+    }
+}
+
+impl<F: PrimeField + From<i32>> Add<Expression<F>> for i32 {
+    type Output = Expression<F>;
+
+    fn add(self, rhs: Expression<F>) -> Self::Output {
+        Expression::constant(F::from(self)) + rhs
+    }
+}
+
+impl<F: PrimeField> AddAssign for Expression<F> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone() + rhs;
     }
 }
 
@@ -166,21 +190,31 @@ impl<F: PrimeField> Add<F> for Expression<F> {
     }
 }
 
-// TODO unfortunately this cannot be done as such, but it would be pretty cool.
-// Think of a workaround?
-// impl<F: PrimeField + From<usize>> Add<usize> for Expression<F> {
-//     type Output = Expression<F>;
+impl<F: PrimeField> AddAssign<F> for Expression<F> {
+    fn add_assign(&mut self, rhs: F) {
+        *self = self.clone() + rhs;
+    }
+}
 
-//     fn add(self, rhs: usize) -> Self::Output {
-//         self + Expression::constant(F::from(rhs))
-//     }
-// }
-
-impl<F> Mul for Expression<F> {
+impl<F: PrimeField> Mul for Expression<F> {
     type Output = Expression<F>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         Expression(Rc::new(ExpressionInner::Mul(self.clone(), rhs.clone())))
+    }
+}
+
+impl<F: PrimeField + From<i32>> Mul<Expression<F>> for i32 {
+    type Output = Expression<F>;
+
+    fn mul(self, rhs: Expression<F>) -> Self::Output {
+        Expression::constant(F::from(self)) * rhs
+    }
+}
+
+impl<F: PrimeField> MulAssign for Expression<F> {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = self.clone() * rhs;
     }
 }
 
@@ -189,6 +223,12 @@ impl<F: PrimeField> Mul<F> for Expression<F> {
 
     fn mul(self, rhs: F) -> Self::Output {
         self * Expression::constant(rhs)
+    }
+}
+
+impl<F: PrimeField> MulAssign<F> for Expression<F> {
+    fn mul_assign(&mut self, rhs: F) {
+        *self = self.clone() * rhs;
     }
 }
 
@@ -208,11 +248,31 @@ impl<F: PrimeField> Sub for Expression<F> {
     }
 }
 
+impl<F: PrimeField + From<i32>> Sub<Expression<F>> for i32 {
+    type Output = Expression<F>;
+
+    fn sub(self, rhs: Expression<F>) -> Self::Output {
+        Expression::constant(F::from(self)) - rhs
+    }
+}
+
+impl<F: PrimeField> SubAssign for Expression<F> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = self.clone() - rhs;
+    }
+}
+
 impl<F: PrimeField> Sub<F> for Expression<F> {
     type Output = Expression<F>;
 
     fn sub(self, rhs: F) -> Self::Output {
         self + (-rhs)
+    }
+}
+
+impl<F: PrimeField> SubAssign<F> for Expression<F> {
+    fn sub_assign(&mut self, rhs: F) {
+        *self = self.clone() - rhs;
     }
 }
 
@@ -224,27 +284,39 @@ impl<F: PrimeField> BitXor<usize> for Expression<F> {
             return self;
         }
 
-        let bits = (0..usize::BITS)
-            .rev()
-            .map(|pos| (rhs >> pos) & 1)
-            .skip_while(|bit| *bit == 0);
+        let mut bits = (0..usize::BITS).rev().map(|pos| (rhs >> pos) & 1);
 
-        let mut result = Expression::constant(F::ONE);
-        let mut current = self;
+        bits.position(|bit| bit == 1);
+
+        let mut current = self.clone();
 
         for bit in bits.into_iter() {
-            if bit == 1 {
-                result = result * current.clone();
-            }
             current = current.clone() * current;
+
+            if bit == 1 {
+                current = current.clone() * self.clone();
+            }
         }
-        result
+
+        current
+    }
+}
+
+impl<F: PrimeField> BitXorAssign<usize> for Expression<F> {
+    fn bitxor_assign(&mut self, rhs: usize) {
+        *self = self.clone() ^ rhs;
     }
 }
 
 impl<F: PrimeField> Sum for Expression<F> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(|a, b| a + b).unwrap()
+    }
+}
+
+impl<F: PrimeField> Product for Expression<F> {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(|a, b| a * b).unwrap()
     }
 }
 
@@ -263,62 +335,3 @@ impl<F: PrimeField> Display for Expression<F> {
         }
     }
 }
-
-// impl<F: PrimeField> Expression<F> {
-//     fn exp(&self, exponent: F::BigInt) -> Self {
-//         let binary_decomposition = exponent
-//             .to_bits_be()
-//             .into_iter()
-//             .skip_while(|b| !b)
-//             .collect::<Vec<_>>();
-//         let mut result = Expression::Constant(F::one());
-//         let mut current = self.clone();
-
-//         for bit in binary_decomposition.into_iter().rev() {
-//             if bit == true {
-//                 result = result * current.clone();
-//             }
-//             current = current.clone() * current;
-//         }
-//         result
-//     }
-
-//     // Computes self ^ (p - 1), where p is the characteristic of the field When
-//     // the field is prime, this is equivalent to computing the inverse of self
-//     // thus, the expression will be identical to zero iff self is zero
-//     fn indicator_function(&self) -> Self {
-//         self.exp((-F::one()).into())
-//     }
-
-//     // Count the number of gates in the expression fn num_gates(&self) -> usize
-//     // { let mut seen_gates = HashSet::new(); self.explore_gates(&mut
-//     //     seen_gates); seen_gates.len() }
-
-//     fn to_arithmetic_circuit(&self) -> ArithmeticCircuit<F> {
-//         let mut nodes = BTreeMap::new();
-//         self.explore_nodes(&mut nodes);
-//         nodes
-//     }
-
-//     fn explore_nodes<'a>(&'a self, explored_nodes: &mut BTreeMap<usize, &Expression<F>>) {
-//         match &self {
-//             Expression::Add(a) => {
-//                 if explored_nodes.contains_key(&(a.as_ref() as *const _ as usize)) {
-//                     return;
-//                 }
-//                 explored_nodes.insert(a.as_ref() as *const _ as usize, &a);
-//                 a.left.explore_nodes(explored_nodes);
-//                 a.right.explore_nodes(explored_nodes);
-//             }
-//             Expression::Mul(m) => {
-//                 if explored_nodes.contains(&(m.as_ref() as *const _ as usize)) {
-//                     return;
-//                 }
-//                 explored_nodes.insert(m.as_ref() as *const _ as usize);
-//                 m.left.explore_nodes(explored_nodes);
-//                 m.right.explore_nodes(explored_nodes);
-//             }
-//             _ => {}
-//         }
-//     }
-// }

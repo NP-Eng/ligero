@@ -8,7 +8,7 @@ use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 pub(crate) mod tests;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Node<F: PrimeField> {
+pub(crate) enum Node<F> {
     /// Variable set individually for each execution
     Variable,
     /// Constant across all executions
@@ -289,6 +289,78 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 
                 println!("\t{index}: {node} = {value}");
             }
+        }
+    }
+
+    // Discards duplicated constants and updates all gate relations accordingly
+    pub fn filter_constants(self) -> Self {
+        let Self {
+            nodes,
+            unit_group_bits,
+            ..
+        } = self;
+
+        // Map of unique constants mapping sending value to final position
+        let mut constants = HashMap::new();
+
+        // Mapping from original indices to post-constant-removal indices
+        let mut filtered_indices = HashMap::new();
+
+        let mut removed_constants = 0;
+
+        nodes.iter().enumerate().for_each(|(i, node)| match node {
+            Node::Constant(v) => {
+                if constants.contains_key(v) {
+                    removed_constants += 1;
+                } else {
+                    constants.insert(*v, i - removed_constants);
+                    filtered_indices.insert(i, i - removed_constants);
+                }
+            }
+            _ => {
+                filtered_indices.insert(i, i - removed_constants);
+            }
+        });
+
+        // TODO possibly change to into_iter and avoid node cloning if the
+        // borrow checker can find it in its heart to accept that
+        let new_nodes: Vec<Node<F>> = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, node)| {
+                match node {
+                    Node::Constant(_) => {
+                        // Checking if this is the first appearance of the constant
+                        if filtered_indices.contains_key(&i) {
+                            Some(node.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    Node::Variable => Some(node.clone()),
+                    Node::Add(left, right) | Node::Mul(left, right) => {
+                        let updated_left = match nodes[*left] {
+                            Node::Constant(c) => *constants.get(&c).unwrap(),
+                            _ => *filtered_indices.get(&left).unwrap(),
+                        };
+                        let updated_right = match nodes[*right] {
+                            Node::Constant(c) => *constants.get(&c).unwrap(),
+                            _ => *filtered_indices.get(&right).unwrap(),
+                        };
+                        match node {
+                            Node::Add(_, _) => Some(Node::Add(updated_left, updated_right)),
+                            Node::Mul(_, _) => Some(Node::Mul(updated_left, updated_right)),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        Self {
+            nodes: new_nodes,
+            constants,
+            unit_group_bits,
         }
     }
 

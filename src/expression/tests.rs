@@ -1,10 +1,10 @@
 use ark_bls12_377::{Fq, G1Affine};
 use ark_bn254::Fr;
+use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
 use itertools::Itertools;
 use std::{collections::HashMap, ops::Deref};
-use ark_ec::short_weierstrass::Affine;
 
 use crate::arithmetic_circuit::Node;
 
@@ -77,7 +77,7 @@ fn test_addition() {
 
 #[test]
 fn test_multiplication() {
-    let a = Expression::variable("x"); 
+    let a = Expression::variable("x");
     let b = Expression::variable("y");
 
     let expression = a * b;
@@ -101,7 +101,6 @@ fn test_subtraction() {
         circuit.evaluate_with_labels(vec![("x", Fr::from(3)), ("y", Fr::from(5))]),
         Fr::from(-2),
     );
-
 }
 
 #[test]
@@ -342,21 +341,22 @@ fn test_to_arithmetic_circuit_3() {
 
     let circuit = expression.to_arithmetic_circuit();
 
-    let values = (0..3).cartesian_product(0..3).map(|(i, j)| {
-        (
-            format!("x_{}_{}", i, j),
-            Fr::from((i * 3 + j) as u32 + 1),
-        )
-    }).collect::<Vec<_>>();
+    let values = (0..3)
+        .cartesian_product(0..3)
+        .map(|(i, j)| (format!("x_{}_{}", i, j), Fr::from((i * 3 + j) as u32 + 1)))
+        .collect::<Vec<_>>();
 
-    assert_eq!(circuit.evaluate_with_labels(values.iter().map(|(k, v)| (k.as_str(), *v)).collect()), Fr::from(0));
+    assert_eq!(
+        circuit.evaluate_with_labels(values.iter().map(|(k, v)| (k.as_str(), *v)).collect()),
+        Fr::from(0)
+    );
 }
 
 #[test]
 fn test_to_arithmetic_circuit_4() {
     let circuit = generate_bls12_377_expression().to_arithmetic_circuit();
     let Affine { x, y, .. } = G1Affine::rand(&mut test_rng());
-    
+
     assert_eq!(
         circuit.evaluate_with_labels(vec![("x", x), ("y", y)]),
         Fq::from(0),

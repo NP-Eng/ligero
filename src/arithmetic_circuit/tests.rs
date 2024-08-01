@@ -3,7 +3,8 @@ use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
 
 use crate::{
-    arithmetic_circuit::{filter_constants, ArithmeticCircuit}, reader::read_constraint_system,
+    arithmetic_circuit::{filter_constants, ArithmeticCircuit},
+    reader::read_constraint_system,
     TEST_DATA_PATH,
 };
 
@@ -135,9 +136,7 @@ fn test_add_variables() {
     let input = circuit.new_variables(2);
     circuit.add(input[0], input[1]);
     assert_eq!(
-        circuit.evaluate(
-            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]
-        ),
+        circuit.evaluate(vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]),
         FrBN::from(5)
     );
 }
@@ -148,9 +147,7 @@ fn test_mul_variables() {
     let input = circuit.new_variables(2);
     circuit.mul(input[0], input[1]);
     assert_eq!(
-        circuit.evaluate(
-            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]
-        ),
+        circuit.evaluate(vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]),
         FrBN::from(6)
     );
 }
@@ -160,10 +157,7 @@ fn test_pow_variable() {
     let mut circuit = ArithmeticCircuit::new();
     let a = circuit.new_variable();
     circuit.pow(a, 4);
-    assert_eq!(
-        circuit.evaluate(vec![(a, FrBN::from(2))]),
-        FrBN::from(16)
-    );
+    assert_eq!(circuit.evaluate(vec![(a, FrBN::from(2))]), FrBN::from(16));
 }
 
 #[test]
@@ -189,10 +183,7 @@ fn test_multiplication() {
     let (a, b, c) = (FrBN::from(6), FrBN::from(3), FrBN::from(2));
     let valid_assignment = vec![(1, a), (2, b), (3, c)];
 
-    assert_eq!(
-        circuit.evaluate(valid_assignment),
-        FrBN::ONE
-    );
+    assert_eq!(circuit.evaluate(valid_assignment), FrBN::ONE);
 }
 
 #[test]
@@ -224,9 +215,7 @@ fn test_cube() {
     yet_another_clever_circuit.add(y_a_x_cubed, y_a_c);
 
     assert_eq!(
-        naive_circuit.evaluate(
-            vec![(1, FrBN::from(3)), (2, FrBN::from(9))],
-        ),
+        naive_circuit.evaluate(vec![(1, FrBN::from(3)), (2, FrBN::from(9))],),
         FrBN::ONE
     );
 
@@ -236,12 +225,7 @@ fn test_cube() {
         &yet_another_clever_circuit,
     ]
     .iter()
-    .for_each(|circuit| {
-        assert_eq!(
-            circuit.evaluate(vec![(0, FrBN::from(3))]),
-            FrBN::ONE
-        )
-    });
+    .for_each(|circuit| assert_eq!(circuit.evaluate(vec![(0, FrBN::from(3))]), FrBN::ONE));
 
     assert_eq!(clever_circuit, another_clever_circuit);
     assert_eq!(clever_circuit, yet_another_clever_circuit);

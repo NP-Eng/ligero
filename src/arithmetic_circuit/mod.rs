@@ -84,13 +84,12 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     }
 
     /// Creates a variable with the given label
-    /// 
+    ///
     /// # Panics
     /// Panics if the circuit already contains a variable with name `var_N`
     //
     // Receiving &str to ease caller syntax
     pub fn new_variable_with_label(&mut self, label: &str) -> usize {
-
         let index = self.push_node(Node::Variable(label.to_string()));
 
         if let Some(_) = self.variables.insert(label.to_string(), index) {
@@ -102,7 +101,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 
     /// Creates a variable with the label `var_N`, where `N` is the number of
     /// variables in the circuit
-    /// 
+    ///
     /// # Panics
     /// Panics if the circuit already contains a variable with name `var_N`
     pub fn new_variable(&mut self) -> usize {
@@ -461,8 +460,9 @@ impl<F: PrimeField> Display for ArithmeticCircuit<F> {
 }
 
 // Discards duplicated constants and updates all gate relations accordingly
-pub(crate) fn filter_constants<F: PrimeField>(nodes: &Vec<Node<F>>) -> (Vec<Node<F>>, HashMap<F, usize>) {
-    
+pub(crate) fn filter_constants<F: PrimeField>(
+    nodes: &Vec<Node<F>>,
+) -> (Vec<Node<F>>, HashMap<F, usize>) {
     // Map of unique constants mapping sending value to final position
     let mut constants = HashMap::new();
 
@@ -520,5 +520,5 @@ pub(crate) fn filter_constants<F: PrimeField>(nodes: &Vec<Node<F>>) -> (Vec<Node
         })
         .collect();
 
-        (new_nodes, constants)
+    (new_nodes, constants)
 }

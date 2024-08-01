@@ -1,3 +1,4 @@
+use crate::arithmetic_circuit::{filter_constants, ArithmeticCircuit, Node};
 use ark_ff::PrimeField;
 use itertools::Itertools;
 use std::{
@@ -7,7 +8,6 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     rc::Rc,
 };
-use crate::arithmetic_circuit::{filter_constants, ArithmeticCircuit, Node};
 
 #[cfg(test)]
 pub mod tests;
@@ -197,7 +197,7 @@ impl<F: PrimeField> Add for Expression<F> {
     }
 }
 
-impl<F: PrimeField>  Mul for Expression<F> {
+impl<F: PrimeField> Mul for Expression<F> {
     type Output = Expression<F>;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -236,7 +236,6 @@ macro_rules! impl_constant_op {
 impl_constant_op!(Add, add, +);
 impl_constant_op!(Mul, mul, *);
 impl_constant_op!(Sub, sub, -);
-
 
 macro_rules! impl_op_assign_aux {
     ($op_trait_assign:ident, $method_assign:ident, $op:tt, $self_type:ty) => {

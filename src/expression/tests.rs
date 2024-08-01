@@ -1,30 +1,47 @@
-use ark_bls12_377::Fq;
+use ark_bls12_377::{Fq, G1Affine};
 use ark_bn254::Fr;
-use ark_ff::{AdditiveGroup, Field};
+use ark_ff::{Field, UniformRand};
+use ark_std::test_rng;
+use itertools::Itertools;
 use std::{collections::HashMap, ops::Deref};
+use ark_ec::short_weierstrass::Affine;
 
 use crate::arithmetic_circuit::Node;
 
 use super::{Expression, ExpressionInner};
 
 pub(crate) fn generate_bls12_377_expression() -> Expression<Fq> {
-    let x = Expression::<Fq>::variable(0);
-    let y = Expression::<Fq>::variable(1);
+    let x = Expression::variable("x");
+    let y = Expression::variable("y");
 
-    1 + (x.pow(3) - y.pow(2))
+    1 + x.pow(3) - y.pow(2)
 }
 
+/// (x^2 + y^2)^2 - 120x^2 + 80y^2 + 1 = 1
 pub(crate) fn generate_lemniscate_expression() -> Expression<Fr> {
-    let x = Expression::<Fr>::variable(0);
-    let y = Expression::<Fr>::variable(1);
+    let x = Expression::variable("x");
+    let y = Expression::variable("y");
 
-    1 + (x.clone().pow(2) + y.clone().pow(2)).pow(2) - 120 * x.pow(2) - 80 * y.pow(2)
+    1 + (x.clone().pow(2) + y.clone().pow(2)).pow(2) - 120 * x.pow(2) + 80 * y.pow(2)
+}
+
+#[test]
+fn test_get_variables() {
+    let circuit = generate_bls12_377_expression().to_arithmetic_circuit();
+
+    assert_eq!(circuit.get_variable("x"), 4);
+    assert_eq!(circuit.get_variable("y"), 0);
+
+    let circuit = generate_lemniscate_expression().to_arithmetic_circuit();
+
+    assert_eq!(circuit.get_variable("x"), 10);
+    assert_eq!(circuit.get_variable("y"), 8);
 }
 
 #[test]
 fn test_same_reference() {
-    let mut f1 = Expression::<Fr>::variable(0);
-    let mut f2 = Expression::<Fr>::variable(1);
+    let mut f1 = Expression::<Fr>::variable("x");
+    let mut f2 = Expression::<Fr>::variable("y");
 
     let original_f1 = f1.clone();
 
@@ -46,44 +63,45 @@ fn test_same_reference() {
 
 #[test]
 fn test_addition() {
-    let a = Expression::<Fr>::variable(0);
-    let b = Expression::<Fr>::variable(1);
+    let a = Expression::variable("x");
+    let b = Expression::variable("y");
 
     let expression = a + b;
     let circuit = expression.to_arithmetic_circuit();
 
     assert_eq!(
-        circuit.evaluate_full(vec![(0, Fr::from(3)), (1, Fr::from(5))], 2),
-        vec![Some(Fr::from(3))]
+        circuit.evaluate_with_labels(vec![("x", Fr::from(3)), ("y", Fr::from(5))]),
+        Fr::from(8),
     );
 }
 
 #[test]
 fn test_multiplication() {
-    let a = Expression::<Fr>::variable(0);
-    let b = Expression::<Fr>::variable(1);
+    let a = Expression::variable("x"); 
+    let b = Expression::variable("y");
 
     let expression = a * b;
     let circuit = expression.to_arithmetic_circuit();
 
     assert_eq!(
-        circuit.evaluate_full(vec![(0, Fr::from(3)), (1, Fr::from(5))], 2),
-        vec![Some(Fr::from(15))]
+        circuit.evaluate_with_labels(vec![("x", Fr::from(3)), ("y", Fr::from(5))]),
+        Fr::from(15),
     );
 }
 
 #[test]
 fn test_subtraction() {
-    let a = Expression::<Fr>::variable(0);
-    let b = Expression::<Fr>::variable(1);
+    let a = Expression::variable("x");
+    let b = Expression::variable("y");
 
     let expression = a - b;
     let circuit = expression.to_arithmetic_circuit();
 
     assert_eq!(
-        circuit.evaluate_full(vec![(0, Fr::from(3)), (1, Fr::from(5))], 2),
-        vec![Some(Fr::from(-2))]
+        circuit.evaluate_with_labels(vec![("x", Fr::from(3)), ("y", Fr::from(5))]),
+        Fr::from(-2),
     );
+
 }
 
 #[test]
@@ -93,11 +111,11 @@ fn test_some_operations() {
 
     let output = x_f.pow([3]) + (y_f - Fr::ONE).pow([11]) + Fr::from(13);
 
-    let x_exp = Expression::<Fr>::constant(x_f);
-    let y_exp = Expression::<Fr>::constant(y_f);
+    let x_exp = Expression::constant(x_f);
+    let y_exp = Expression::constant(y_f);
 
-    let output_exp = 13 + (x_exp ^ 3) + ((y_exp - Fr::ONE) ^ 11);
-    let circ_output = output_exp.to_arithmetic_circuit().evaluate_last(vec![]);
+    let output_exp = 13 + x_exp.pow(3) + (y_exp - Fr::ONE).pow(11);
+    let circ_output = output_exp.to_arithmetic_circuit().evaluate(vec![]);
 
     assert_eq!(output, circ_output);
 }
@@ -158,8 +176,8 @@ After filtering:
 */
 #[test]
 fn test_to_arithmetic_circuit_1() {
-    let x = Expression::<Fr>::variable(0);
-    let y = Expression::<Fr>::variable(1);
+    let x = Expression::variable("x");
+    let y = Expression::variable("y");
 
     let expression = (3 + 2 * (x.clone() * y.clone())) + ((3 + 2 * x) * (1 + 2 * y));
 
@@ -172,8 +190,8 @@ fn test_to_arithmetic_circuit_1() {
             Node::Add(5, 11),
             Node::Mul(0, 10),
             Node::Mul(9, 8),
-            Node::Variable,
-            Node::Variable,
+            Node::Variable("x".to_string()),
+            Node::Variable("y".to_string()),
             Node::Mul(6, 3),
             Node::Add(5, 4),
             Node::Constant(Fr::from(3)),
@@ -198,7 +216,7 @@ fn test_to_arithmetic_circuit_1() {
     );
 
     assert_eq!(
-        circuit.evaluate_full(vec![(8, Fr::from(2)), (9, Fr::from(3))], 13),
+        circuit.evaluation_trace_with_labels(vec![("x", Fr::from(3)), ("y", Fr::from(2))], 13),
         vec![
             Some(Fr::from(60)),
             Some(Fr::from(15)),
@@ -245,11 +263,12 @@ fn test_to_arithmetic_circuit_1() {
     0: Mul(4, 3) -> 6
 
 */
+
 #[test]
 fn test_to_arithmetic_circuit_2() {
-    let a = Expression::<Fr>::variable(0);
-    let b = Expression::<Fr>::variable(1);
-    let c = Expression::<Fr>::variable(2);
+    let a = Expression::variable("a");
+    let b = Expression::variable("b");
+    let c = Expression::variable("c");
 
     let expression = (a.clone() + b.clone()) * (c + a * b);
 
@@ -260,10 +279,10 @@ fn test_to_arithmetic_circuit_2() {
         vec![
             Node::Mul(5, 2),
             Node::Add(4, 3),
-            Node::Variable,
-            Node::Variable,
+            Node::Variable("a".to_string()),
+            Node::Variable("b".to_string()),
             Node::Add(1, 0),
-            Node::Variable,
+            Node::Variable("c".to_string()),
             Node::Mul(4, 3),
         ]
         .iter()
@@ -275,8 +294,8 @@ fn test_to_arithmetic_circuit_2() {
     assert_eq!(circuit.constants, HashMap::new());
 
     assert_eq!(
-        circuit.evaluate_full(
-            vec![(1, Fr::from(1)), (3, Fr::from(2)), (4, Fr::from(3))],
+        circuit.evaluation_trace_with_labels(
+            vec![("a", Fr::from(3)), ("b", Fr::from(2)), ("c", Fr::from(1))],
             6
         ),
         vec![
@@ -296,7 +315,7 @@ fn test_to_arithmetic_circuit_3() {
     let matrix = (0..3)
         .map(|i| {
             (0..3)
-                .map(|j| Expression::<Fr>::variable(i * 3 + j))
+                .map(|j| Expression::variable(&format!("x_{i}_{j}")))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -323,17 +342,33 @@ fn test_to_arithmetic_circuit_3() {
 
     let circuit = expression.to_arithmetic_circuit();
 
-    let var_indices = vec![10, 11, 12, 15, 16, 17, 20, 21, 22];
+    let values = (0..3).cartesian_product(0..3).map(|(i, j)| {
+        (
+            format!("x_{}_{}", i, j),
+            Fr::from((i * 3 + j) as u32 + 1),
+        )
+    }).collect::<Vec<_>>();
 
-    let values = var_indices
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| (v, Fr::from(i as u32)))
-        .collect::<Vec<_>>();
-
-    assert_eq!(circuit.evaluate(values, 27), Fr::ZERO);
+    assert_eq!(circuit.evaluate_with_labels(values.iter().map(|(k, v)| (k.as_str(), *v)).collect()), Fr::from(0));
 }
 
+#[test]
 fn test_to_arithmetic_circuit_4() {
     let circuit = generate_bls12_377_expression().to_arithmetic_circuit();
+    let Affine { x, y, .. } = G1Affine::rand(&mut test_rng());
+    
+    assert_eq!(
+        circuit.evaluate_with_labels(vec![("x", x), ("y", y)]),
+        Fq::from(0),
+    );
+}
+
+#[test]
+fn test_to_arithmetic_circuit_5() {
+    let circuit = generate_lemniscate_expression().to_arithmetic_circuit();
+
+    assert_eq!(
+        circuit.evaluate_with_labels(vec![("x", Fr::from(8)), ("y", Fr::from(4))]),
+        Fr::from(1),
+    );
 }

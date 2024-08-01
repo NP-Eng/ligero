@@ -233,7 +233,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         nodes.iter().enumerate().skip(1).for_each(|(i, node)| {
             match node {
-                Node::Variable => {
+                Node::Variable(_) => {
                     p_x.push_empty_row();
                     p_y.push_empty_row();
                     p_z.push_empty_row();
@@ -305,7 +305,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
     pub fn prove(
         &self,
-        vars: Vec<(usize, F)>,
+        var_assignment: Vec<(usize, F)>,
         sponge: &mut impl CryptographicSponge,
     ) -> LigeroProof<F> {
         // TODO initialise sponge, absorb maybe x, y, z
@@ -314,7 +314,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         // TODO: Feed u into the Sponge
 
-        let sol: Vec<F> = self.circuit.evaluate_full(vars, self.output_node).into_iter().map(|n|
+        let sol: Vec<F> = self.circuit.evaluation_trace(var_assignment, self.output_node).into_iter().map(|n|
             n.expect("Uninitialised variable. Make sure the circuit only contains nodes upon which the final output truly depends")
         ).collect();
 

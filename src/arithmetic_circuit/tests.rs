@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
 
 use crate::{
-    arithmetic_circuit::ArithmeticCircuit, expression::Expression, reader::read_constraint_system,
+    arithmetic_circuit::{filter_constants, ArithmeticCircuit}, reader::read_constraint_system,
     TEST_DATA_PATH,
 };
 
@@ -21,8 +19,8 @@ pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
     // Ligero circuits must start with a constant 1
     let one = circuit.constant(FqBLS::ONE);
 
-    let x = circuit.variable();
-    let y = circuit.variable();
+    let x = circuit.new_variable_with_label("x");
+    let y = circuit.new_variable_with_label("y");
 
     let y_squared = circuit.pow(y, 2);
     let minus_y_squared = circuit.minus(y_squared);
@@ -49,15 +47,15 @@ pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
     //     10: node(9) + node(0)
 }
 
-/// (x^2 + y^2)^2 - 120x^2 - 80y^2 + 1 = 1
+/// (x^2 + y^2)^2 - 120x^2 + 80y^2 + 1 = 1
 pub(crate) fn generate_lemniscate_circuit() -> ArithmeticCircuit<FrBN> {
     let mut circuit = ArithmeticCircuit::new();
 
     // Ligero circuits must start with a constant 1
     let one = circuit.constant(FrBN::ONE);
 
-    let x = circuit.variable();
-    let y = circuit.variable();
+    let x = circuit.new_variable();
+    let y = circuit.new_variable();
 
     let a = circuit.constant(FrBN::from(120));
     let b = circuit.constant(FrBN::from(80));
@@ -84,8 +82,8 @@ pub(crate) fn generate_3_by_3_determinant_circuit() -> ArithmeticCircuit<FrBN> {
     // Ligero circuits must start with a constant 1
     let one = circuit.constant(FrBN::ONE);
 
-    let vars = circuit.variables(9);
-    let det = circuit.variable();
+    let vars = circuit.new_variables(9);
+    let det = circuit.new_variable();
 
     let aei = circuit.mul_nodes([vars[0], vars[4], vars[8]]);
     let bfg = circuit.mul_nodes([vars[1], vars[5], vars[6]]);
@@ -110,8 +108,8 @@ fn test_add_constants() {
     let mut circuit = ArithmeticCircuit::new();
     let one = circuit.constant(FrBN::ONE);
     let two = circuit.constant(FrBN::from(2));
-    let three = circuit.add(one, two);
-    assert_eq!(circuit.evaluate(vec![], three), FrBN::from(3));
+    circuit.add(one, two);
+    assert_eq!(circuit.evaluate(vec![]), FrBN::from(3));
 }
 
 #[test]
@@ -119,27 +117,26 @@ fn test_mul_constants() {
     let mut circuit = ArithmeticCircuit::new();
     let a = circuit.constant(FrBN::from(6));
     let b = circuit.constant(FrBN::from(2));
-    let c = circuit.mul(a, b);
-    assert_eq!(circuit.evaluate(vec![], c), FrBN::from(12));
+    circuit.mul(a, b);
+    assert_eq!(circuit.evaluate(vec![]), FrBN::from(12));
 }
 
 #[test]
 fn test_pow_constants() {
     let mut circuit = ArithmeticCircuit::new();
     let two = circuit.constant(FrBN::from(2));
-    let four = circuit.pow(two, 5);
-    assert_eq!(circuit.evaluate(vec![], four), FrBN::from(32));
+    circuit.pow(two, 5);
+    assert_eq!(circuit.evaluate(vec![]), FrBN::from(32));
 }
 
 #[test]
 fn test_add_variables() {
     let mut circuit = ArithmeticCircuit::new();
-    let input = circuit.variables(2);
-    let c = circuit.add(input[0], input[1]);
+    let input = circuit.new_variables(2);
+    circuit.add(input[0], input[1]);
     assert_eq!(
         circuit.evaluate(
-            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))],
-            c
+            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]
         ),
         FrBN::from(5)
     );
@@ -148,12 +145,11 @@ fn test_add_variables() {
 #[test]
 fn test_mul_variables() {
     let mut circuit = ArithmeticCircuit::new();
-    let input = circuit.variables(2);
-    let c = circuit.mul(input[0], input[1]);
+    let input = circuit.new_variables(2);
+    circuit.mul(input[0], input[1]);
     assert_eq!(
         circuit.evaluate(
-            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))],
-            c
+            vec![(input[0], FrBN::from(2)), (input[1], FrBN::from(3))]
         ),
         FrBN::from(6)
     );
@@ -162,10 +158,10 @@ fn test_mul_variables() {
 #[test]
 fn test_pow_variable() {
     let mut circuit = ArithmeticCircuit::new();
-    let a = circuit.variable();
-    let b = circuit.pow(a, 4);
+    let a = circuit.new_variable();
+    circuit.pow(a, 4);
     assert_eq!(
-        circuit.evaluate(vec![(a, FrBN::from(2))], b),
+        circuit.evaluate(vec![(a, FrBN::from(2))]),
         FrBN::from(16)
     );
 }
@@ -173,11 +169,10 @@ fn test_pow_variable() {
 #[test]
 fn test_indicator() {
     let mut circuit = ArithmeticCircuit::new();
-    let a = circuit.variable();
-    let b = circuit.indicator(a);
-
+    let a = circuit.new_variable();
+    circuit.indicator(a);
     assert_eq!(
-        circuit.evaluate(vec![(a, FrBN::rand(&mut test_rng()))], b),
+        circuit.evaluate(vec![(a, FrBN::rand(&mut test_rng()))]),
         FrBN::from(1)
     );
 }
@@ -195,7 +190,7 @@ fn test_multiplication() {
     let valid_assignment = vec![(1, a), (2, b), (3, c)];
 
     assert_eq!(
-        circuit.evaluate(valid_assignment, circuit.last()),
+        circuit.evaluate(valid_assignment),
         FrBN::ONE
     );
 }
@@ -210,20 +205,20 @@ fn test_cube() {
     let naive_circuit = ArithmeticCircuit::from_constraint_system(&r1cs);
 
     let mut clever_circuit = ArithmeticCircuit::new();
-    let x = clever_circuit.variable();
+    let x = clever_circuit.new_variable();
     let x_cubed = clever_circuit.pow(x, 3);
     let c = clever_circuit.constant(-FrBN::from(26));
     clever_circuit.add(x_cubed, c);
 
     let mut another_clever_circuit = ArithmeticCircuit::new();
-    let a_x = another_clever_circuit.variable();
+    let a_x = another_clever_circuit.new_variable();
     let a_x_2 = another_clever_circuit.mul(a_x, a_x);
     let a_x_cubed = another_clever_circuit.mul(a_x_2, a_x);
     let a_c = another_clever_circuit.constant(-FrBN::from(26));
     another_clever_circuit.add(a_x_cubed, a_c);
 
     let mut yet_another_clever_circuit = ArithmeticCircuit::new();
-    let y_a_x = yet_another_clever_circuit.variable();
+    let y_a_x = yet_another_clever_circuit.new_variable();
     let y_a_x_cubed = yet_another_clever_circuit.mul_nodes([y_a_x, y_a_x, y_a_x]);
     let y_a_c = yet_another_clever_circuit.constant(-FrBN::from(26));
     yet_another_clever_circuit.add(y_a_x_cubed, y_a_c);
@@ -231,7 +226,6 @@ fn test_cube() {
     assert_eq!(
         naive_circuit.evaluate(
             vec![(1, FrBN::from(3)), (2, FrBN::from(9))],
-            naive_circuit.last()
         ),
         FrBN::ONE
     );
@@ -244,7 +238,7 @@ fn test_cube() {
     .iter()
     .for_each(|circuit| {
         assert_eq!(
-            circuit.evaluate(vec![(0, FrBN::from(3))], circuit.last()),
+            circuit.evaluate(vec![(0, FrBN::from(3))]),
             FrBN::ONE
         )
     });
@@ -261,8 +255,8 @@ fn test_cube() {
 fn test_fibonacci() {
     let mut circ = ArithmeticCircuit::<FrBN>::new();
 
-    let f_0 = circ.variable();
-    let f_1 = circ.variable();
+    let f_0 = circ.new_variable();
+    let f_1 = circ.new_variable();
 
     let mut first_operand = f_0;
     let mut second_operand = f_1;
@@ -277,13 +271,13 @@ fn test_fibonacci() {
 
     // Checking F_42
     assert_eq!(
-        circ.evaluate(vec![(f_0, FrBN::ONE), (f_1, FrBN::ONE)], 42 - 1),
+        circ.evaluate_node(vec![(f_0, FrBN::ONE), (f_1, FrBN::ONE)], 42 - 1),
         f_42,
     );
 
     // Checking F_42 after shifting the entire sequence by 4 positions
     assert_eq!(
-        circ.evaluate(vec![(f_0, FrBN::from(5)), (f_1, FrBN::from(8))], 42 - 5),
+        circ.evaluate_node(vec![(f_0, FrBN::from(5)), (f_1, FrBN::from(8))], 42 - 5),
         f_42,
     );
 }
@@ -293,7 +287,7 @@ fn test_fibonacci_with_const() {
     let mut circ = ArithmeticCircuit::<FrBN>::new();
 
     let f_0 = circ.constant(FrBN::ONE);
-    let f_1 = circ.variable();
+    let f_1 = circ.new_variable();
 
     let mut first_operand = f_0;
     let mut second_operand = f_1;
@@ -307,7 +301,7 @@ fn test_fibonacci_with_const() {
     let f_42 = FrBN::from(267914296);
 
     // Checking F_42
-    assert_eq!(circ.evaluate(vec![(f_1, FrBN::ONE)], 42 - 1), f_42,);
+    assert_eq!(circ.evaluate_node(vec![(f_1, FrBN::ONE)], 42 - 1), f_42);
 }
 
 #[test]
@@ -319,10 +313,7 @@ fn test_bls12_377_circuit() {
     assert_eq!(y.pow(&[2]), x.pow(&[3]) + FqBLS::ONE);
 
     let valid_assignment = vec![(1, x), (2, y)];
-    let output_node = circuit.last();
-    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
-    circuit.print_evaluation(valid_assignment, output_node);
-    assert_eq!(evaluation[output_node].unwrap(), FqBLS::ONE);
+    assert_eq!(circuit.evaluate(valid_assignment.clone()), FqBLS::ONE);
 }
 
 #[test]
@@ -333,9 +324,7 @@ fn test_lemniscate_circuit() {
     let y = FrBN::from(4);
 
     let valid_assignment = vec![(1, x), (2, y)];
-    let output_node = circuit.last();
-    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
-    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
+    assert_eq!(circuit.evaluate(valid_assignment), FrBN::ONE);
 }
 
 #[test]
@@ -348,9 +337,7 @@ fn test_generate_3_by_3_determinant_circuit() {
     let det = FrBN::from(0);
     let valid_assignment = [vars, vec![(10, det)]].concat();
 
-    let output_node = circuit.last();
-    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
-    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
+    assert_eq!(circuit.evaluate(valid_assignment), FrBN::ONE);
 
     let circuit = generate_3_by_3_determinant_circuit();
 
@@ -368,18 +355,16 @@ fn test_generate_3_by_3_determinant_circuit() {
     let det = FrBN::from(13);
     let valid_assignment = [vars, vec![(10, det)]].concat();
 
-    let output_node = circuit.last();
-    let evaluation = circuit.evaluate_full(valid_assignment.clone(), output_node);
-    assert_eq!(evaluation[output_node].unwrap(), FrBN::ONE);
+    assert_eq!(circuit.evaluate(valid_assignment), FrBN::ONE);
 }
 
 #[test]
 pub fn test_constant_filtering() {
     let nodes: Vec<Node<FqBLS>> = vec![
-        Node::Variable,                  // 0  -> 0
+        Node::Variable("x".to_string()), // 0  -> 0
         Node::Constant(FqBLS::from(3)),  // 1  -> 1
         Node::Constant(FqBLS::from(3)),  // 2  ----
-        Node::Variable,                  // 3  -> 2
+        Node::Variable("y".to_string()), // 3  -> 2
         Node::Mul(18, 2),                // 4  -> 3
         Node::Constant(-FqBLS::from(1)), // 5  -> 4
         Node::Mul(4, 1),                 // 6  -> 5
@@ -392,15 +377,15 @@ pub fn test_constant_filtering() {
         Node::Mul(17, 10),               // 13 -> 11
         Node::Constant(FqBLS::from(3)),  // 14 -----
         Node::Constant(-FqBLS::from(2)), // 15 -> 12
-        Node::Variable,                  // 16 -> 13
+        Node::Variable("z".to_string()), // 16 -> 13
         Node::Constant(-FqBLS::from(1)), // 17 -----
         Node::Add(12, 5),                // 18 -> 14
     ];
 
     let filtered_nodes: Vec<Node<FqBLS>> = vec![
-        Node::Variable,                  // 0  -> 0
+        Node::Variable("x".to_string()), // 0  -> 0
         Node::Constant(FqBLS::from(3)),  // 1  -> 1
-        Node::Variable,                  // 3  -> 2
+        Node::Variable("y".to_string()), // 3  -> 2
         Node::Mul(14, 1),                // 4  -> 3
         Node::Constant(-FqBLS::from(1)), // 5  -> 4
         Node::Mul(3, 1),                 // 6  -> 5
@@ -411,49 +396,9 @@ pub fn test_constant_filtering() {
         Node::Add(7, 1),                 // 12 -> 10
         Node::Mul(4, 4),                 // 13 -> 11
         Node::Constant(-FqBLS::from(2)), // 15 -> 12
-        Node::Variable,                  // 16 -> 13
+        Node::Variable("z".to_string()), // 16 -> 13
         Node::Add(10, 4),                // 18 -> 14
     ];
 
-    let circuit = ArithmeticCircuit {
-        nodes,
-        constants: HashMap::new(),
-        unit_group_bits: None,
-    };
-
-    assert_eq!(circuit.filter_constants().nodes, filtered_nodes);
+    assert_eq!(filter_constants(&nodes).0, filtered_nodes);
 }
-
-// circuit.evaluate(vec![(2, F::form(10), (13, F::form(10)), (1, F::form(10))]);
-
-// let x = circuit.variable()
-// ...
-// let y = circuit.variable()
-// ..
-// let z = circuit.variable()
-// circuit.evaluate(vec![(x, F::form(10), (y, F::form(10)), (z, F::form(10))]);
-
-// circuit.evaluate
-
-// Option B
-// - Circuit variables have IDs, old nice syntax still possible but new one too
-// - expression.to_circuit can simply return ArithmeticCircuit (because the ArithmeticCircuit variables will have the IDs)
-
-// 1. Circuit has a map from variable IDs to indices
-// 2. circuit.new_variable_with_label(label) -> index (to keep the nice syntax)
-//    - if there is already a variable with the same label, panic
-// 3. circuit.new_variable() -> index (to keep the nice syntax); Has to create a
-//    label, e.g. "var_N" where is the number of already existing variables
-//    Note this cannot be done for Expression, as it doesn't know how many vars
-//    there are already
-//    What happens if there is already a variable with that name? panic
-// 4. circuit.get_variable("label") -> index
-//
-// 5. evaluate -> F                        evaluate_labeled
-//        |                                     |
-//        v                                     v
-//    evaluate_full -> Vec<F>     <----  evaluate_full_labeled {labels_to_idx evaluate_full}
-//        ^
-//        |
-//    print_evaluation   <------------- print_evaluation_labeled
-// 6. Update any methods that print nodes to include the label

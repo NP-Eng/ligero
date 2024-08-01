@@ -10,7 +10,9 @@ pub(crate) mod tests;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Node<F> {
     /// Variable set individually for each execution
-    Variable,
+    // Since no two variables have the same label, no memory cost is incurred
+    // due to owning the string as opposed to a &'a str
+    Variable(String),
     /// Constant across all executions
     Constant(F),
     /// Addition gate with indices of its left and right input within a larger
@@ -27,6 +29,8 @@ pub struct ArithmeticCircuit<F: PrimeField> {
     pub(crate) nodes: Vec<Node<F>>,
     // Hash map of constants defined in the circuit in order to avoid duplication
     pub(crate) constants: HashMap<F, usize>,
+    // Map from variable labels to node indices
+    pub(crate) variables: HashMap<String, usize>,
     // Big-endian bit decomposition of F::MODULUS - 1, without initial zeros
     pub(crate) unit_group_bits: Option<Vec<bool>>,
 }
@@ -41,10 +45,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     }
 
     pub fn num_variables(&self) -> usize {
-        self.nodes
-            .iter()
-            .filter(|node| **node == Node::Variable)
-            .count()
+        self.variables.len()
     }
 
     pub fn last(&self) -> usize {
@@ -65,10 +66,13 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         Self {
             nodes: Vec::new(),
             constants: HashMap::new(),
+            variables: HashMap::new(),
             unit_group_bits: Option::None,
         }
     }
 
+    /// Returns existing constant with value `value` if it exists, or creates a
+    /// new one and returns its index if it does not
     pub fn constant(&mut self, value: F) -> usize {
         if let Some(index) = self.constants.get(&value) {
             *index
@@ -79,18 +83,46 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         }
     }
 
-    pub fn variable(&mut self) -> usize {
-        self.push_node(Node::Variable)
+    /// Creates a variable with the given label
+    /// 
+    /// # Panics
+    /// Panics if the circuit already contains a variable with name `var_N`
+    //
+    // Receiving &str to ease caller syntax
+    pub fn new_variable_with_label(&mut self, label: &str) -> usize {
+
+        let index = self.push_node(Node::Variable(label.to_string()));
+
+        if let Some(_) = self.variables.insert(label.to_string(), index) {
+            panic!("Variable label already in use: {label}");
+        }
+
+        index
     }
 
-    pub fn variables(&mut self, num: usize) -> Vec<usize> {
-        (0..num).map(|_| self.variable()).collect()
+    /// Creates a variable with the label `var_N`, where `N` is the number of
+    /// variables in the circuit
+    /// 
+    /// # Panics
+    /// Panics if the circuit already contains a variable with name `var_N`
+    pub fn new_variable(&mut self) -> usize {
+        self.new_variable_with_label(&format!("var_{}", self.num_variables()))
     }
 
+    pub fn new_variables(&mut self, num: usize) -> Vec<usize> {
+        (0..num).map(|_| self.new_variable()).collect()
+    }
+
+    pub fn get_variable(&self, label: &str) -> usize {
+        *self.variables.get(label).expect("Variable not in circuit")
+    }
+
+    /// Adds the two nodes without checking that they are in the circuit
     fn add_unchecked(&mut self, left: usize, right: usize) -> usize {
         self.push_node(Node::Add(left, right))
     }
 
+    /// Adds the two nodes, checking that they are in the circuit
     pub fn add(&mut self, left: usize, right: usize) -> usize {
         let length = self.nodes.len();
         assert!(left < length, "Left operand to Add not in circuit:");
@@ -99,10 +131,12 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.push_node(Node::Add(left, right))
     }
 
+    /// Multiplies the two nodes without checking that they are in the circuit
     pub fn mul_unchecked(&mut self, left: usize, right: usize) -> usize {
         self.push_node(Node::Mul(left, right))
     }
 
+    /// Multiplies the two nodes, checking that they are in the circuit
     pub fn mul(&mut self, left: usize, right: usize) -> usize {
         let length = self.nodes.len();
         assert!(left < length, "Left operand to Mul not in circuit:");
@@ -111,6 +145,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.push_node(Node::Mul(left, right))
     }
 
+    /// Adds all nodes in the given iterator
     pub fn add_nodes(&mut self, indices: impl IntoIterator<Item = usize>) -> usize {
         indices
             .into_iter()
@@ -118,6 +153,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .unwrap()
     }
 
+    /// Multiplies all nodes in the given list
     pub fn mul_nodes(&mut self, indices: impl IntoIterator<Item = usize>) -> usize {
         indices
             .into_iter()
@@ -125,6 +161,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .unwrap()
     }
 
+    /// Computes node^exponent, where exponent is a BigUint
     pub fn pow_bigint(&mut self, node: usize, exponent: BigUint) -> usize {
         assert!(
             node < self.num_nodes(),
@@ -142,6 +179,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.pow_binary(node, &binary_decomposition)
     }
 
+    /// Computes node^exponent, where exponent is a usize
     pub fn pow(&mut self, node: usize, exponent: usize) -> usize {
         self.pow_bigint(node, exponent.into())
     }
@@ -162,7 +200,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         current
     }
 
-    // Computes the node x^(F::MODULUS - 1), which is 0 if x = 0 and 1 otherwise
+    /// Computes the node x^(F::MODULUS - 1), which is 0 if x = 0 and 1 otherwise
     pub fn indicator(&mut self, node: usize) -> usize {
         let unit_group_bits = self
             .unit_group_bits
@@ -179,14 +217,15 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.pow_binary(node, &unit_group_bits)
     }
 
+    /// Computes the negation of the given node
     pub fn minus(&mut self, node: usize) -> usize {
         let minus_one = self.constant(-F::ONE);
         self.mul(minus_one, node)
     }
 
-    // Compute the scalar product of two vectors of nodes. Does NOT perform
-    // optimisations by, for instance, skipping multiplication of the form 1 * x
-    // or 0 * x, or omitting addition of zero terms.
+    /// Computes the scalar product of two vectors of nodes. Does NOT perform
+    /// optimisations by, for instance, skipping multiplication of the form 1 * x
+    /// or 0 * x, or omitting addition of zero terms.
     pub fn scalar_product(
         &mut self,
         left: impl IntoIterator<Item = usize>,
@@ -205,39 +244,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.nodes.len() - 1
     }
 
-    // Evaluate all nodes required to compute the output node, returning the
-    // full vector of intermediate node values. Nodes not involved in the
-    // computation (and not passed as part of the variable assignment) are left
-    // as None
-    pub fn evaluate_full(&self, vars: Vec<(usize, F)>, node: usize) -> Vec<Option<F>> {
-        let mut node_assignments = self
-            .nodes
-            .iter()
-            .map(|node| {
-                if let Node::Constant(c) = node {
-                    Some(*c)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<Option<F>>>();
-
-        // This does not check (for efficiency reasons) that each variable was
-        // supplied with only one value: in the case of duplicates, the latest
-        // one in the list is used
-        for (index, value) in vars {
-            if self.nodes[index] == Node::Variable {
-                node_assignments[index] = Some(value);
-            } else {
-                panic!("Value supplied for non-variable node");
-            }
-        }
-
-        self.inner_evaluate(node, &mut node_assignments);
-
-        node_assignments
-    }
-
+    // Auxiliary recursive function which evaluation_trace wraps around
     fn inner_evaluate(&self, node_index: usize, node_assignments: &mut Vec<Option<F>>) {
         if let Some(_) = node_assignments[node_index] {
             return;
@@ -246,7 +253,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         let node = &self.nodes[node_index];
 
         match node {
-            Node::Variable => panic!("Uninitialised variable"),
+            Node::Variable(_) => panic!("Uninitialised variable"),
             Node::Constant(_) => panic!("Uninitialised constant"),
             Node::Add(left, right) | Node::Mul(left, right) => {
                 self.inner_evaluate(*left, node_assignments);
@@ -264,18 +271,74 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         }
     }
 
-    pub fn evaluate(&self, vars: Vec<(usize, F)>, node: usize) -> F {
-        self.evaluate_full(vars, node)[node].unwrap()
+    // ************************ Evaluation functions ***************************
+
+    // Evaluate all nodes required to compute the output node, returning the
+    // full vector of intermediate node values. Nodes not involved in the
+    // computation (and not passed as part of the variable assignment) are left
+    // as None
+    pub fn evaluation_trace(&self, vars: Vec<(usize, F)>, node: usize) -> Vec<Option<F>> {
+        let mut node_assignments = self
+            .nodes
+            .iter()
+            .map(|node| {
+                if let Node::Constant(c) = node {
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<Option<F>>>();
+
+        // This does not check (for efficiency reasons) that each variable was
+        // supplied with only one value: in the case of duplicates, the latest
+        // one in the list is used
+        for (index, value) in vars {
+            if let Node::Variable(_) = self.nodes[index] {
+                node_assignments[index] = Some(value);
+            } else {
+                panic!("Value supplied for non-variable node");
+            }
+        }
+
+        self.inner_evaluate(node, &mut node_assignments);
+
+        node_assignments
     }
 
-    pub fn evaluate_last(&self, vars: Vec<(usize, F)>) -> F {
-        self.evaluate(vars, self.last())
+    pub fn evaluation_trace_with_labels(
+        &self,
+        vars: Vec<(&str, F)>,
+        node: usize,
+    ) -> Vec<Option<F>> {
+        let vars = vars
+            .into_iter()
+            .map(|(label, value)| (self.get_variable(label), value))
+            .collect::<Vec<_>>();
+
+        self.evaluation_trace(vars, node)
     }
 
-    fn print_evaluation(&self, vars: Vec<(usize, F)>, node: usize) {
+    pub fn evaluate_node(&self, vars: Vec<(usize, F)>, node: usize) -> F {
+        self.evaluation_trace(vars, node)[node].unwrap()
+    }
+
+    pub fn evaluate_node_with_labels(&self, vars: Vec<(&str, F)>, node: usize) -> F {
+        self.evaluation_trace_with_labels(vars, node)[node].unwrap()
+    }
+
+    pub fn evaluate(&self, vars: Vec<(usize, F)>) -> F {
+        self.evaluate_node(vars, self.last())
+    }
+
+    pub fn evaluate_with_labels(&self, vars: Vec<(&str, F)>) -> F {
+        self.evaluate_node_with_labels(vars, self.last())
+    }
+
+    fn print_evaluation_trace(&self, var_assignment: Vec<(usize, F)>, node: usize) {
         println!("Arithmetic circuit with {} nodes:", self.num_nodes());
 
-        let evaluations = self.evaluate_full(vars, node);
+        let evaluations = self.evaluation_trace(var_assignment, node);
 
         for (index, (node, value)) in self.nodes.iter().zip(evaluations.iter()).enumerate() {
             if let Node::Constant(c) = node {
@@ -292,77 +355,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         }
     }
 
-    // Discards duplicated constants and updates all gate relations accordingly
-    pub fn filter_constants(self) -> Self {
-        let Self {
-            nodes,
-            unit_group_bits,
-            ..
-        } = self;
-
-        // Map of unique constants mapping sending value to final position
-        let mut constants = HashMap::new();
-
-        // Mapping from original indices to post-constant-removal indices
-        let mut filtered_indices = HashMap::new();
-
-        let mut removed_constants = 0;
-
-        nodes.iter().enumerate().for_each(|(i, node)| match node {
-            Node::Constant(v) => {
-                if constants.contains_key(v) {
-                    removed_constants += 1;
-                } else {
-                    constants.insert(*v, i - removed_constants);
-                    filtered_indices.insert(i, i - removed_constants);
-                }
-            }
-            _ => {
-                filtered_indices.insert(i, i - removed_constants);
-            }
-        });
-
-        // TODO possibly change to into_iter and avoid node cloning if the
-        // borrow checker can find it in its heart to accept that
-        let new_nodes: Vec<Node<F>> = nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, node)| {
-                match node {
-                    Node::Constant(_) => {
-                        // Checking if this is the first appearance of the constant
-                        if filtered_indices.contains_key(&i) {
-                            Some(node.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    Node::Variable => Some(node.clone()),
-                    Node::Add(left, right) | Node::Mul(left, right) => {
-                        let updated_left = match nodes[*left] {
-                            Node::Constant(c) => *constants.get(&c).unwrap(),
-                            _ => *filtered_indices.get(&left).unwrap(),
-                        };
-                        let updated_right = match nodes[*right] {
-                            Node::Constant(c) => *constants.get(&c).unwrap(),
-                            _ => *filtered_indices.get(&right).unwrap(),
-                        };
-                        match node {
-                            Node::Add(_, _) => Some(Node::Add(updated_left, updated_right)),
-                            Node::Mul(_, _) => Some(Node::Mul(updated_left, updated_right)),
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-            })
-            .collect();
-
-        Self {
-            nodes: new_nodes,
-            constants,
-            unit_group_bits,
-        }
-    }
+    // ************************ Compilation functions **************************
 
     pub fn from_constraint_system(cs: &ConstraintSystem<F>) -> Self {
         // TODO include assertion (likely irrelevant in practice) that the
@@ -375,7 +368,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 
         let mut circuit = ArithmeticCircuit::new();
         let one = circuit.constant(F::ONE);
-        circuit.variables(cs.num_instance_variables + cs.num_witness_variables - 1);
+        circuit.new_variables(cs.num_instance_variables + cs.num_witness_variables - 1);
 
         let mut row_expressions = |matrix: Vec<Vec<(F, usize)>>| {
             matrix
@@ -448,7 +441,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 impl<F: PrimeField> Display for Node<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Node::Variable => write!(f, "Variable"),
+            Node::Variable(label) => write!(f, "{}", label),
             Node::Constant(c) => write!(f, "Constant({})", c),
             Node::Add(left, right) => write!(f, "node({}) + node({})", left, right),
             Node::Mul(left, right) => write!(f, "node({}) * node({})", left, right),
@@ -465,4 +458,67 @@ impl<F: PrimeField> Display for ArithmeticCircuit<F> {
         }
         Ok(())
     }
+}
+
+// Discards duplicated constants and updates all gate relations accordingly
+pub(crate) fn filter_constants<F: PrimeField>(nodes: &Vec<Node<F>>) -> (Vec<Node<F>>, HashMap<F, usize>) {
+    
+    // Map of unique constants mapping sending value to final position
+    let mut constants = HashMap::new();
+
+    // Mapping from original indices to post-constant-removal indices
+    let mut filtered_indices = HashMap::new();
+
+    let mut removed_constants = 0;
+
+    nodes.iter().enumerate().for_each(|(i, node)| match node {
+        Node::Constant(v) => {
+            if constants.contains_key(v) {
+                removed_constants += 1;
+            } else {
+                constants.insert(*v, i - removed_constants);
+                filtered_indices.insert(i, i - removed_constants);
+            }
+        }
+        _ => {
+            filtered_indices.insert(i, i - removed_constants);
+        }
+    });
+
+    // TODO possibly change to into_iter and avoid node cloning if the
+    // borrow checker can find it in its heart to accept that
+    let new_nodes = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, node)| {
+            match node {
+                Node::Constant(_) => {
+                    // Checking if this is the first appearance of the constant
+                    if filtered_indices.contains_key(&i) {
+                        Some(node.clone())
+                    } else {
+                        None
+                    }
+                }
+                Node::Variable(_) => Some(node.clone()),
+                Node::Add(left, right) | Node::Mul(left, right) => {
+                    let updated_left = match nodes[*left] {
+                        Node::Constant(c) => *constants.get(&c).unwrap(),
+                        _ => *filtered_indices.get(&left).unwrap(),
+                    };
+                    let updated_right = match nodes[*right] {
+                        Node::Constant(c) => *constants.get(&c).unwrap(),
+                        _ => *filtered_indices.get(&right).unwrap(),
+                    };
+                    match node {
+                        Node::Add(_, _) => Some(Node::Add(updated_left, updated_right)),
+                        Node::Mul(_, _) => Some(Node::Mul(updated_left, updated_right)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        })
+        .collect();
+
+        (new_nodes, constants)
 }

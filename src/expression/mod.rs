@@ -16,7 +16,7 @@ pub mod tests;
 /// with syntax along the lines of:
 /// let x = Expression::Variable("x");
 /// let y = Expression::Variable("y");
-/// let output = y.pow(2) - (x.pow(3) + 1) // 0 if (x, y) are in the corresponding elliptic curve!
+/// let output = y.pow(2) - x.pow(3) + 1
 
 /// Syntax summary:
 /// - Expression::variable(id) creates a variable with the given ID.

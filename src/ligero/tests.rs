@@ -31,7 +31,7 @@ fn test_construction_bls12_377() {
 
     // Induced matrices:
     //       Row index      P_x         P_y         P_z        P_add
-    //       0              []          []          []         [(1, 8), (1, 0), (-1, 0)]
+    //       0              []          []          []         []
     //       1              []          []          []         []
     //       2              []          []          []         []
     //       3              [(1, 2)]    [(1, 2)]    [(1, 3)]   []
@@ -41,7 +41,7 @@ fn test_construction_bls12_377() {
     //       7              []          []          []         [(1, 6), (1, 0), (-1, 7)]
     //       8              []          []          []         [(1, 7), (1, 4), (-1, 8)]
     //       9              []          []          []         [(1, 8), (1, 0), (-1, 9)]
-    //       10             []          []          []         []
+    //       10             []          []          []         [(1, 8), (1, 0), (-1, 0)]
     //       11             []          []          []         []
     //       12             []          []          []         []
     //       13             []          []          []         []
@@ -100,14 +100,14 @@ fn test_construction_bls12_377() {
 
     let p_add = SparseMatrix::from_rows(
         [
-            vec![vec![(Fq::ONE, 8), (Fq::ONE, 0), (-Fq::ONE, 0)]],
-            vec![vec![]; 6],
+            vec![vec![]; 7],
             vec![
                 vec![(Fq::ONE, 6), (Fq::ONE, 0), (-Fq::ONE, 7)],
                 vec![(Fq::ONE, 7), (Fq::ONE, 4), (-Fq::ONE, 8)],
                 vec![(Fq::ONE, 8), (Fq::ONE, 0), (-Fq::ONE, 9)],
             ],
-            vec![vec![]; 6],
+            vec![vec![(Fq::ONE, 8), (Fq::ONE, 0), (-Fq::ONE, 0)]],
+            vec![vec![]; 5],
         ]
         .concat(),
         m * k,
@@ -119,7 +119,7 @@ fn test_construction_bls12_377() {
     let expected_a = a_upper.v_stack(a_lower);
 
     assert_eq!(
-        LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL).a,
+        LigeroCircuit::new(circuit, vec![output_node], DEFAULT_SECURITY_LEVEL).a,
         expected_a
     );
 }
@@ -130,7 +130,7 @@ fn test_prove_and_verify_bls12_377() {
 
     let circuit = generate_bls12_377_circuit();
     let output_node = circuit.last();
-    let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);
+    let ligero_circuit = LigeroCircuit::new(circuit, vec![output_node], DEFAULT_SECURITY_LEVEL);
 
     let sponge: PoseidonSponge<Fq> = test_sponge();
 
@@ -143,7 +143,7 @@ fn test_prove_and_verify_bls12_377() {
 fn test_prove_and_verify_lemniscate() {
     let circuit = generate_lemniscate_circuit();
     let output_node = circuit.last();
-    let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);
+    let ligero_circuit = LigeroCircuit::new(circuit, vec![output_node], DEFAULT_SECURITY_LEVEL);
 
     let sponge: PoseidonSponge<Fr> = test_sponge();
 
@@ -159,7 +159,7 @@ fn test_prove_and_verify_lemniscate() {
 fn test_prove_and_verify_3_by_3_determinant() {
     let circuit = generate_3_by_3_determinant_circuit();
     let output_node = circuit.last();
-    let ligero_circuit = LigeroCircuit::new(circuit, output_node, DEFAULT_SECURITY_LEVEL);
+    let ligero_circuit = LigeroCircuit::new(circuit, vec![output_node], DEFAULT_SECURITY_LEVEL);
 
     let sponge: PoseidonSponge<Fr> = test_sponge();
 

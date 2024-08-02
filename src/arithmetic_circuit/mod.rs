@@ -318,6 +318,58 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.evaluation_trace(vars, node)
     }
 
+    // Evaluate all nodes required to compute all output nodes, returning the
+    // full vector of intermediate node values. Nodes not involved in the
+    // computation (and not passed as part of the variable assignment) are left
+    // as None
+    pub fn evaluation_trace_multioutput(
+        &self,
+        vars: Vec<(usize, F)>,
+        outputs: &Vec<usize>,
+    ) -> Vec<Option<F>> {
+        let mut node_assignments = self
+            .nodes
+            .iter()
+            .map(|node| {
+                if let Node::Constant(c) = node {
+                    Some(*c)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<Option<F>>>();
+
+        // This does not check (for efficiency reasons) that each variable was
+        // supplied with only one value: in the case of duplicates, the latest
+        // one in the list is used
+        for (index, value) in vars {
+            if let Node::Variable(_) = self.nodes[index] {
+                node_assignments[index] = Some(value);
+            } else {
+                panic!("Value supplied for non-variable node");
+            }
+        }
+
+        outputs
+            .iter()
+            .for_each(|node| self.inner_evaluate(*node, &mut node_assignments));
+
+        node_assignments
+    }
+
+    pub fn evaluation_trace_multioutput_with_labels(
+        &self,
+        vars: Vec<(&str, F)>,
+        outputs: &Vec<usize>,
+    ) -> Vec<Option<F>> {
+        let vars = vars
+            .into_iter()
+            .map(|(label, value)| (self.get_variable(label), value))
+            .collect::<Vec<_>>();
+
+        self.evaluation_trace_multioutput(vars, outputs)
+    }
+
     pub fn evaluate_node(&self, vars: Vec<(usize, F)>, node: usize) -> F {
         self.evaluation_trace(vars, node)[node].unwrap()
     }

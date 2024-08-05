@@ -245,7 +245,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             }
         });
 
-        // Adding the constraint o = 1 for each output node
+        // Adding the constraint o = 1 for each output node o
         for output_node in outputs {
             match &nodes[*output_node] {
                 Node::Add(l_node, r_node) => {
@@ -253,21 +253,20 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
                     p_y.push_empty_row();
                     p_z.push_empty_row();
 
-                    let mut row = vec![];
-
-                    if let Node::Constant(c) = nodes[*l_node] {
-                        row.extend(vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]);
+                    let mut row = if let Node::Constant(c) = nodes[*l_node] {
+                        vec![(c, 0), (F::ONE, *index_map.get(r_node).unwrap())]
                     } else if let Node::Constant(c) = nodes[*r_node] {
-                        row.extend(vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]);
+                        vec![(F::ONE, *index_map.get(l_node).unwrap()), (c, 0)]
                     } else {
                         // Add(constant, constant) is prevented by the validity
                         // check, so the only remaining possibility is the case
                         // Add(non-constant, non-constant)
-                        row.extend(vec![
+                        vec![
                             (F::ONE, *index_map.get(l_node).unwrap()),
                             (F::ONE, *index_map.get(r_node).unwrap()),
-                        ]);
-                    }
+                        ]
+                    };
+
                     row.push((-F::ONE, 0));
                     p_add.push_row(row);
                 }
@@ -404,6 +403,29 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             linear_constraints_proof,
             quadratic_constraints_proof,
         }
+    }
+
+    pub fn prove_with_labels(
+        &self,
+        var_assignment: Vec<(&str, F)>,
+        sponge: &mut impl CryptographicSponge,
+    ) -> LigeroProof<F> {
+        self.prove(
+            var_assignment
+                .into_iter()
+                .map(|(label, value)| {
+                    (
+                        *self
+                            .circuit
+                            .variables
+                            .get(label)
+                            .expect(&format!("Variable not found: {}", label)),
+                        value,
+                    )
+                })
+                .collect(),
+            sponge,
+        )
     }
 
     pub fn verify(&self, proof: LigeroProof<F>, sponge: &mut impl CryptographicSponge) -> bool {

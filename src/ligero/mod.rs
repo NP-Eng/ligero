@@ -6,7 +6,10 @@ use ark_poly::{
 };
 use ark_poly_commit::linear_codes::calculate_t;
 use itertools::izip;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    vec,
+};
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
@@ -146,6 +149,51 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             small_domain,
             intermediate_domain,
         }
+    }
+
+    pub fn format_circuit(mut circuit: ArithmeticCircuit<F>) -> ArithmeticCircuit<F> {
+        // Get the index of the constant 1 in the circuit, if it exists
+        let one_index = circuit
+            .constants
+            .get(&F::ONE)
+            .unwrap_or(&usize::MAX)
+            .to_owned();
+
+        // Move the constant 1 to the beginning of the circuit
+        if one_index != usize::MAX {
+            circuit.nodes.remove(one_index);
+        }
+
+        circuit.nodes.insert(0, Node::Constant(F::ONE));
+
+        let shift_index = |node_index: usize| {
+            if node_index < one_index {
+                node_index + 1
+            } else if node_index == one_index {
+                0
+            } else {
+                node_index
+            }
+        };
+
+        // Shift the indices of the nodes, variables and constants accordingly
+        circuit.nodes.iter_mut().for_each(|node| {
+            if let Node::Add(a, b) | Node::Mul(a, b) = node {
+                *a = shift_index(*a);
+                *b = shift_index(*b);
+            }
+        });
+
+        circuit.constants.iter_mut().for_each(|(_, i)| {
+            *i = shift_index(*i);
+        });
+
+        circuit
+            .variables
+            .iter_mut()
+            .for_each(|(_, i)| *i = shift_index(*i));
+
+        circuit
     }
 
     // Computes the dimensions m and l

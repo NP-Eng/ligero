@@ -193,7 +193,7 @@ pub fn test_multioutput_1() {
     circuit.constant(Fr::ONE);
 
     // x^2 = 9
-    // y^2 = 64
+    // y^3 = 64
     // x + y = 7
     let x = circuit.new_variable_with_label("x");
     let y = circuit.new_variable_with_label("y");

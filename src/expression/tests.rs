@@ -14,7 +14,7 @@ pub(crate) fn generate_bls12_377_expression() -> Expression<Fq> {
     let x = Expression::variable("x");
     let y = Expression::variable("y");
 
-    1 + x.pow(3) - y.pow(2)
+    1 + (1 + x.pow(3) - y.pow(2))
 }
 
 /// (x^2 + y^2)^2 - 120x^2 + 80y^2 + 1 = 1
@@ -23,6 +23,40 @@ pub(crate) fn generate_lemniscate_expression() -> Expression<Fr> {
     let y = Expression::variable("y");
 
     1 + (x.clone().pow(2) + y.clone().pow(2)).pow(2) - 120 * x.pow(2) + 80 * y.pow(2)
+}
+
+pub(crate) fn generate_3_by_3_determinant_expression() -> Expression<Fr> {
+    let matrix = (0..3)
+        .map(|i| {
+            (0..3)
+                .map(|j| Expression::variable(&format!("x_{i}_{j}")))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let possitive_diagonal = (0..3)
+        .map(|k| {
+            vec![0, 4, 8]
+                .into_iter()
+                .zip(0..3)
+                .map(|(j, i)| matrix[i][(j + k) % 3].clone())
+                .product()
+        })
+        .sum::<Expression<Fr>>();
+
+    let negative_diagonal = (0..3)
+        .map(|k| {
+            vec![2, 4, 6]
+                .into_iter()
+                .zip(0..3)
+                .map(|(j, i)| matrix[i][(j + k) % 3].clone())
+                .product()
+        })
+        .sum::<Expression<Fr>>();
+
+    let det = Expression::variable("det");
+
+    1 + (possitive_diagonal - negative_diagonal - det)
 }
 
 #[test]
@@ -311,44 +345,23 @@ fn test_to_arithmetic_circuit_2() {
 
 #[test]
 fn test_to_arithmetic_circuit_3() {
-    let matrix = (0..3)
-        .map(|i| {
-            (0..3)
-                .map(|j| Expression::variable(&format!("x_{i}_{j}")))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-
-    let possitive_diagonal = (0..3)
-        .map(|i| {
-            vec![0, 4, 8]
-                .iter()
-                .map(|&j| matrix[i][(j + i) % 3].clone())
-                .product()
-        })
-        .sum::<Expression<Fr>>();
-
-    let negative_diagonal = -(0..3)
-        .map(|i| {
-            vec![2, 4, 6]
-                .iter()
-                .map(|&j| matrix[i][(j + i) % 3].clone())
-                .product()
-        })
-        .sum::<Expression<Fr>>();
-
-    let expression = possitive_diagonal + negative_diagonal;
-
-    let circuit = expression.to_arithmetic_circuit();
+    let circuit = generate_3_by_3_determinant_expression().to_arithmetic_circuit();
 
     let values = (0..3)
         .cartesian_product(0..3)
-        .map(|(i, j)| (format!("x_{}_{}", i, j), Fr::from((i * 3 + j) as u32 + 1)))
+        .map(|(i, j)| {
+            (
+                format!("x_{}_{}", i, j),
+                Fr::from((3 * i + j) * (3 * i + j)),
+            )
+        })
         .collect::<Vec<_>>();
 
+    let vars = [values, vec![("det".to_string(), Fr::from(-216))]].concat();
+
     assert_eq!(
-        circuit.evaluate_with_labels(values.iter().map(|(k, v)| (k.as_str(), *v)).collect()),
-        Fr::from(0)
+        circuit.evaluate_with_labels(vars.iter().map(|(k, v)| (k.as_str(), *v)).collect()),
+        Fr::ONE,
     );
 }
 
@@ -359,7 +372,7 @@ fn test_to_arithmetic_circuit_4() {
 
     assert_eq!(
         circuit.evaluate_with_labels(vec![("x", x), ("y", y)]),
-        Fq::from(0),
+        Fq::ONE
     );
 }
 
@@ -369,6 +382,6 @@ fn test_to_arithmetic_circuit_5() {
 
     assert_eq!(
         circuit.evaluate_with_labels(vec![("x", Fr::from(8)), ("y", Fr::from(4))]),
-        Fr::from(1),
+        Fr::ONE
     );
 }

@@ -25,8 +25,14 @@ mod tests;
 // individual tests?
 
 pub struct LigeroCircuit<F: PrimeField> {
-    /// Arithmetic circuit to be proved
+    /// Arithmetic circuit to be proved (formatted)
     circuit: ArithmeticCircuit<F>,
+
+    // Index of constant one in the original circuit
+    one_index: usize,
+
+    // True if the constant one is present in the original circuit
+    one_found: bool,
 
     /// Indices of nodes that contain the output to the circuit. Ligero proves
     /// that each of them take the value 1.
@@ -85,11 +91,6 @@ pub struct LigeroProof<F: PrimeField> {
 
 impl<F: PrimeField + Absorb> LigeroCircuit<F> {
     pub fn new(circuit: ArithmeticCircuit<F>, outputs: Vec<usize>, lambda: usize) -> Self {
-        // TODO handle this case gracefully: add constant 1 at the beginning of the the circuit
-        if circuit.nodes[0] != Node::Constant(F::ONE) {
-            panic!("First node in the circuit must be the constant 1");
-        }
-
         // TODO check validity, including
         //  - the fact that each gate depends only on previous gates
         //  - disallow add(const, const) or mul(const, const)
@@ -100,6 +101,19 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         //  1 + n_i + s = m * k
         // The first 1 comes from the constant 1, which is does not appear in
         // the less-general version in the article.
+
+        // Get the index of the constant 1 in the circuit, if it exists
+        let (one_index, one_found) = if let Some(&i) = circuit.constants.get(&F::ONE) {
+            (i, true)
+        } else {
+            (1, false)
+        };
+
+        let mut circuit = circuit;
+        if one_index != 0 {
+            Self::format_circuit(&mut circuit, one_index, one_found)
+        }
+
         let sol_vec_length = 1 + circuit.num_nodes() - circuit.num_constants() + outputs.len();
 
         // In this implementation, k = l by convention
@@ -140,7 +154,12 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         Self {
             circuit,
-            outputs,
+            outputs: outputs
+                .iter()
+                .map(|&i| Self::bump_index(one_index, one_found, i))
+                .collect::<Vec<usize>>(),
+            one_index,
+            one_found,
             a,
             m,
             n,
@@ -152,49 +171,49 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         }
     }
 
-    pub fn format_circuit(mut circuit: ArithmeticCircuit<F>) -> ArithmeticCircuit<F> {
-        // Get the index of the constant 1 in the circuit, if it exists
-        let one_index = circuit
-            .constants
-            .get(&F::ONE)
-            .unwrap_or(&usize::MAX)
-            .to_owned();
+    pub fn bump_index(one_index: usize, one_found: bool, index: usize) -> usize {
+        if one_found {
+            if index < one_index {
+                index + 1
+            } else if index == one_index {
+                0
+            } else {
+                index
+            }
+        } else {
+            if index == 0 {
+                0
+            } else {
+                index + 1
+            }
+        }
+    }
 
+    pub fn format_circuit(circuit: &mut ArithmeticCircuit<F>, one_index: usize, one_found: bool) {
         // Move the constant 1 to the beginning of the circuit
-        if one_index != usize::MAX {
+        if one_found {
             circuit.nodes.remove(one_index);
         }
 
         circuit.nodes.insert(0, Node::Constant(F::ONE));
 
-        let shift_index = |node_index: usize| {
-            if node_index < one_index {
-                node_index + 1
-            } else if node_index == one_index {
-                0
-            } else {
-                node_index
-            }
-        };
-
         // Shift the indices of the nodes, variables and constants accordingly
         circuit.nodes.iter_mut().for_each(|node| {
             if let Node::Add(a, b) | Node::Mul(a, b) = node {
-                *a = shift_index(*a);
-                *b = shift_index(*b);
+                *a = Self::bump_index(one_index, one_found, *a);
+                *b = Self::bump_index(one_index, one_found, *b);
             }
         });
 
-        circuit.constants.iter_mut().for_each(|(_, i)| {
-            *i = shift_index(*i);
-        });
+        circuit
+            .constants
+            .iter_mut()
+            .for_each(|(_, i)| *i = Self::bump_index(one_index, one_found, *i));
 
         circuit
             .variables
             .iter_mut()
-            .for_each(|(_, i)| *i = shift_index(*i));
-
-        circuit
+            .for_each(|(_, i)| *i = Self::bump_index(one_index, one_found, *i));
     }
 
     // Computes the dimensions m and l
@@ -369,6 +388,11 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         // TODO: FS more generally, especially absorptions
 
         // TODO: Feed u into the Sponge
+
+        let var_assignment = var_assignment
+            .into_iter()
+            .map(|(i, f)| (Self::bump_index(self.one_index, self.one_found, i), f))
+            .collect();
 
         let sol: Vec<F> = self.circuit.evaluation_trace_multioutput(var_assignment, &self.outputs).into_iter().map(|n|
             n.expect("Uninitialised variable. Make sure the circuit only contains nodes upon which the final output truly depends")

@@ -165,7 +165,7 @@ fn test_proof_and_verify_expression<F: PrimeField + Absorb>(
     expression: Expression<F>,
     vars: Vec<(&str, F)>,
 ) {
-    let circuit = LigeroCircuit::format_circuit(expression.to_arithmetic_circuit());
+    let circuit = expression.to_arithmetic_circuit();
 
     let indexed_vars = vars
         .into_iter()
@@ -221,7 +221,6 @@ fn test_prove_and_verify_3_by_3_determinant() {
     let labeled_values = (0..3)
         .cartesian_product(0..3)
         .map(|(i, j)| (format!("x_{i}_{j}"), values[i * 3 + j].1))
-        .map(|(s, f)| (s, f))
         .collect::<Vec<_>>();
 
     let labeled_vars = labeled_values

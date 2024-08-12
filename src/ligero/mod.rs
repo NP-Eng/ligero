@@ -111,7 +111,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         let mut circuit = circuit;
         if one_index != 0 {
-            Self::format_circuit(&mut circuit, one_index, one_found)
+            Self::insert_one(&mut circuit, one_index, one_found)
         }
 
         let sol_vec_length = 1 + circuit.num_nodes() - circuit.num_constants() + outputs.len();
@@ -140,6 +140,11 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         }
 
         // Constructing the main matrix A
+        let outputs = outputs
+            .iter()
+            .map(|&i| Self::bump_index(one_index, one_found, i))
+            .collect::<Vec<usize>>();
+
         let a = Self::generate_matrices(&circuit, &outputs, m * k, &index_map);
 
         let large_domain = GeneralEvaluationDomain::<F>::new(n).unwrap_or_else(|| {
@@ -154,10 +159,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         Self {
             circuit,
-            outputs: outputs
-                .iter()
-                .map(|&i| Self::bump_index(one_index, one_found, i))
-                .collect::<Vec<usize>>(),
+            outputs,
             one_index,
             one_found,
             a,
@@ -171,7 +173,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         }
     }
 
-    pub fn bump_index(one_index: usize, one_found: bool, index: usize) -> usize {
+    fn bump_index(one_index: usize, one_found: bool, index: usize) -> usize {
         if one_found {
             if index < one_index {
                 index + 1
@@ -181,15 +183,11 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
                 index
             }
         } else {
-            if index == 0 {
-                0
-            } else {
-                index + 1
-            }
+            index + 1
         }
     }
 
-    pub fn format_circuit(circuit: &mut ArithmeticCircuit<F>, one_index: usize, one_found: bool) {
+    fn insert_one(circuit: &mut ArithmeticCircuit<F>, one_index: usize, one_found: bool) {
         // Move the constant 1 to the beginning of the circuit
         if one_found {
             circuit.nodes.remove(one_index);
@@ -209,6 +207,8 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             .constants
             .iter_mut()
             .for_each(|(_, i)| *i = Self::bump_index(one_index, one_found, *i));
+
+        circuit.constants.insert(F::ONE, 0);
 
         circuit
             .variables
@@ -383,17 +383,24 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         var_assignment: Vec<(usize, F)>,
         sponge: &mut impl CryptographicSponge,
     ) -> LigeroProof<F> {
-        // TODO initialise sponge, absorb maybe x, y, z
-
-        // TODO: FS more generally, especially absorptions
-
-        // TODO: Feed u into the Sponge
-
         let var_assignment = var_assignment
             .into_iter()
             .map(|(i, f)| (Self::bump_index(self.one_index, self.one_found, i), f))
             .collect();
 
+        self.prove_inner(var_assignment, sponge)
+    }
+
+    fn prove_inner(
+        &self,
+        var_assignment: Vec<(usize, F)>,
+        sponge: &mut impl CryptographicSponge,
+    ) -> LigeroProof<F> {
+        // TODO initialise sponge, absorb maybe x, y, z
+
+        // TODO: FS more generally, especially absorptions
+
+        // TODO: Feed u into the Sponge
         let sol: Vec<F> = self.circuit.evaluation_trace_multioutput(var_assignment, &self.outputs).into_iter().map(|n|
             n.expect("Uninitialised variable. Make sure the circuit only contains nodes upon which the final output truly depends")
         ).collect();
@@ -482,7 +489,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         var_assignment: Vec<(&str, F)>,
         sponge: &mut impl CryptographicSponge,
     ) -> LigeroProof<F> {
-        self.prove(
+        self.prove_inner(
             var_assignment
                 .into_iter()
                 .map(|(label, value)| {

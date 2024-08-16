@@ -406,15 +406,33 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         }
     }
 
+    fn print_evaluation_trace_multioutput(
+        &self,
+        var_assignment: Vec<(usize, F)>,
+        outputs: &Vec<usize>,
+    ) {
+        println!("Arithmetic circuit with {} nodes:", self.num_nodes());
+
+        let evaluations = self.evaluation_trace_multioutput(var_assignment, outputs);
+
+        for (index, (node, value)) in self.nodes.iter().zip(evaluations.iter()).enumerate() {
+            if let Node::Constant(c) = node {
+                println!("\t{index}: Constant = {c:?}");
+            } else {
+                let value = if let Some(v) = value {
+                    format!("{v:?}")
+                } else {
+                    "not set".to_string()
+                };
+
+                println!("\t{index}: {node} = {value}");
+            }
+        }
+    }
+
     // ************************ Compilation functions **************************
 
-    pub fn from_constraint_system(cs: &ConstraintSystem<F>) -> Self {
-        // TODO include assertion (likely irrelevant in practice) that the
-        // *effective* number of constraints is less than F::MODULUS
-        // minus...one? two? In any case, getting the effective number of
-        // constraints is a difficult task in itself, to be addressed in v2 of
-        // this compiler
-
+    pub fn from_constraint_system(cs: &ConstraintSystem<F>) -> (Self, Vec<usize>) {
         let ConstraintMatrices { a, b, c, .. } = cs.to_matrices().unwrap();
 
         let mut circuit = ArithmeticCircuit::new();
@@ -446,21 +464,14 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
             .map(|c| circuit.mul(c, minus_one))
             .collect::<Vec<_>>();
 
-        // Az * Bz - Cz == 0
-        let constraints = pairwise_mul_a_b
+        // Az * Bz - Cz + 1
+        let outputs = pairwise_mul_a_b
             .into_iter()
             .zip(minus_c.into_iter())
-            .map(|(ab, c)| circuit.add(ab, c))
+            .map(|(ab, m_c)| circuit.add_nodes([ab, m_c, one]))
             .collect::<Vec<_>>();
 
-        let indicators = constraints
-            .into_iter()
-            .map(|constraint| circuit.indicator(constraint))
-            .collect::<Vec<_>>();
-
-        let node_sum = circuit.add_nodes(indicators);
-        circuit.add(node_sum, one);
-        circuit
+        (circuit, outputs)
     }
 
     // Compile a sparse scalar product into nodes. Relies on some assumptions

@@ -1,3 +1,4 @@
+use ark_circom::circom;
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;
@@ -178,7 +179,7 @@ fn test_multiplication() {
         &format!(TEST_DATA_PATH!(), "multiplication.wasm"),
     );
 
-    let circuit = ArithmeticCircuit::<FrBN>::from_constraint_system(&cs);
+    let (circuit, _) = ArithmeticCircuit::<FrBN>::from_constraint_system(&cs);
 
     let (a, b, c) = (FrBN::from(6), FrBN::from(3), FrBN::from(2));
     let valid_assignment = vec![(1, a), (2, b), (3, c)];
@@ -187,13 +188,13 @@ fn test_multiplication() {
 }
 
 #[test]
-fn test_cube() {
+fn test_cube_multioutput() {
     let r1cs = read_constraint_system::<FrBN>(
         &format!(TEST_DATA_PATH!(), "cube.r1cs"),
         &format!(TEST_DATA_PATH!(), "cube.wasm"),
     );
 
-    let naive_circuit = ArithmeticCircuit::from_constraint_system(&r1cs);
+    let (circuit, outputs) = ArithmeticCircuit::from_constraint_system(&r1cs);
 
     let mut clever_circuit = ArithmeticCircuit::new();
     let x = clever_circuit.new_variable();
@@ -214,9 +215,14 @@ fn test_cube() {
     let y_a_c = yet_another_clever_circuit.constant(-FrBN::from(26));
     yet_another_clever_circuit.add(y_a_x_cubed, y_a_c);
 
+    let evaluation_trace = circuit
+        .evaluation_trace_multioutput(vec![(1, FrBN::from(3)), (2, FrBN::from(9))], &outputs);
     assert_eq!(
-        naive_circuit.evaluate(vec![(1, FrBN::from(3)), (2, FrBN::from(9))],),
-        FrBN::ONE
+        outputs
+            .into_iter()
+            .map(|output| evaluation_trace[output].unwrap())
+            .collect::<Vec<_>>(),
+        vec![FrBN::ONE, FrBN::ONE],
     );
 
     [
@@ -230,8 +236,8 @@ fn test_cube() {
     assert_eq!(clever_circuit, another_clever_circuit);
     assert_eq!(clever_circuit, yet_another_clever_circuit);
 
-    // The R1CS compiler uses an indicator for each constraint, leading to a massively blown-up circuit
-    assert_eq!(naive_circuit.num_nodes(), 719);
+    // With the indicator-based compiler, this would result in 719 gates
+    assert_eq!(circuit.num_nodes(), 15);
     assert_eq!(clever_circuit.num_gates(), 3);
 }
 

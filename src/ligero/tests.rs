@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     arithmetic_circuit::{
         tests::{
@@ -15,6 +17,7 @@ use crate::{
     },
     ligero::LigeroCircuit,
     matrices::SparseMatrix,
+    reader::read_constraint_system,
     DEFAULT_SECURITY_LEVEL,
 };
 use ark_bls12_377::{Fq, G1Affine};
@@ -23,6 +26,7 @@ use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, Absorb};
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_poly_commit::test_sponge;
+use ark_relations::r1cs::ConstraintSystem;
 use ark_std::test_rng;
 use itertools::Itertools;
 
@@ -348,4 +352,47 @@ pub fn test_multioutput_1() {
     );
 
     assert!(ligero.verify(proof, &mut verifier_sponge));
+}
+
+#[test]
+pub fn test_poseidon() {
+    println!("Reading R1CS from file...");
+    let cs: ConstraintSystem<Fr> = read_constraint_system(
+        "circom/poseidon/poseidon.r1cs",
+        "circom/poseidon/poseidon_js/poseidon.wasm",
+    );
+
+    println!("Compiling R1CS into ArithmeticCircuit...");
+    let (circuit, output) = ArithmeticCircuit::from_constraint_system(&cs);
+
+    let outputs = vec![circuit.last()];
+
+    let cs_witness: Vec<Fr> = serde_json::from_str::<Vec<String>>(
+        &std::fs::read_to_string("circom/poseidon/witness.json").unwrap(),
+    )
+    .unwrap()
+    .iter()
+    .map(|s| Fr::from_str(s).unwrap())
+    .collect();
+
+    println!("R1CS witness length: {}", cs_witness.len());
+    println!("Number of nodes: {}", circuit.num_nodes());
+    println!("Number of variables: {}", circuit.num_variables());
+    println!("Number of gates: {}", circuit.num_gates());
+    println!("Number of constants: {}", circuit.num_constants());
+
+    let var_assignment = cs_witness.into_iter().skip(1).enumerate().collect_vec();
+
+    for out in outputs.iter() {
+        println!(
+            "Output: {}",
+            circuit.evaluate_node(var_assignment.clone(), *out)
+        );
+    }
+    /*     println!("Building LigeroCircuit...");
+    let ligero = LigeroCircuit::new(
+        circuit,
+        outputs,
+        DEFAULT_SECURITY_LEVEL
+    ); */
 }

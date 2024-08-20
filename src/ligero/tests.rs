@@ -363,9 +363,7 @@ pub fn test_poseidon() {
     );
 
     println!("Compiling R1CS into ArithmeticCircuit...");
-    let (circuit, output) = ArithmeticCircuit::from_constraint_system(&cs);
-
-    let outputs = vec![circuit.last()];
+    let (circuit, outputs) = ArithmeticCircuit::from_constraint_system(&cs);
 
     let cs_witness: Vec<Fr> = serde_json::from_str::<Vec<String>>(
         &std::fs::read_to_string("circom/poseidon/witness.json").unwrap(),
@@ -381,18 +379,29 @@ pub fn test_poseidon() {
     println!("Number of gates: {}", circuit.num_gates());
     println!("Number of constants: {}", circuit.num_constants());
 
-    let var_assignment = cs_witness.into_iter().skip(1).enumerate().collect_vec();
+    let var_assignment = cs_witness.into_iter().enumerate().skip(1).collect_vec();
 
-    for out in outputs.iter() {
-        println!(
-            "Output: {}",
-            circuit.evaluate_node(var_assignment.clone(), *out)
-        );
-    }
-    /*     println!("Building LigeroCircuit...");
-    let ligero = LigeroCircuit::new(
-        circuit,
-        outputs,
-        DEFAULT_SECURITY_LEVEL
-    ); */
+    assert!(circuit
+        .evaluate_multioutput(var_assignment.clone(), &outputs)
+        .into_iter()
+        .all(|v| v == Fr::ONE));
+
+    println!("Building LigeroCircuit...");
+    let ligero = LigeroCircuit::new(circuit, outputs, DEFAULT_SECURITY_LEVEL);
+
+    let mut sponge: PoseidonSponge<Fr> = test_sponge();
+
+    let start = std::time::Instant::now();
+
+    println!("Proving LigeroCircuit...");
+    let proof = ligero.prove(var_assignment, &mut sponge.clone());
+
+    println!("Time to prove: {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+
+    println!("Verifying LigeroCircuit...");
+    assert!(ligero.verify(proof, &mut sponge));
+
+    println!("Time to verify: {:?}", start.elapsed());
 }

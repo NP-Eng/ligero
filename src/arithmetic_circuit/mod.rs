@@ -378,6 +378,26 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         self.evaluation_trace_with_labels(vars, node)[node].unwrap()
     }
 
+    pub fn evaluate_multioutput(&self, vars: Vec<(usize, F)>, outputs: &Vec<usize>) -> Vec<F> {
+        self.evaluation_trace_multioutput(vars, outputs)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, v)| if outputs.contains(&i) { v } else { None })
+            .collect()
+    }
+
+    pub fn evaluate_multioutput_with_labels(
+        &self,
+        vars: Vec<(&str, F)>,
+        outputs: &Vec<usize>,
+    ) -> Vec<F> {
+        self.evaluation_trace_multioutput_with_labels(vars, outputs)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, v)| if outputs.contains(&i) { v } else { None })
+            .collect()
+    }
+
     pub fn evaluate(&self, vars: Vec<(usize, F)>) -> F {
         self.evaluate_node(vars, self.last())
     }

@@ -6,6 +6,7 @@ pub mod reader;
 pub(crate) mod utils;
 
 pub const DEFAULT_SECURITY_LEVEL: usize = 128;
+pub const CHACHA_SEED_BYTES: usize = 256 / 8;
 
 #[macro_export]
 macro_rules! TEST_DATA_PATH {

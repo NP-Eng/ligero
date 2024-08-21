@@ -14,7 +14,8 @@ use std::{
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
     matrices::{DenseMatrix, SparseMatrix},
-    utils::get_distinct_indices_from_prng,
+    utils::{get_distinct_indices_from_prng, get_field_elements_from_prng},
+    CHACHA_SEED_BYTES,
 };
 
 #[cfg(test)]
@@ -527,7 +528,10 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u_preenc: &DenseMatrix<F>,
         sponge: &mut impl CryptographicSponge,
     ) -> Vec<F> {
-        let r_interleaved: Vec<F> = sponge.squeeze_field_elements(4 * self.m);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_interleaved: Vec<F> =
+            get_field_elements_from_prng(4 * self.m, seed.try_into().unwrap());
+
         u_preenc.row_mul(&r_interleaved)
     }
 
@@ -537,7 +541,10 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u: &DenseMatrix<F>,
         sponge: &mut impl CryptographicSponge,
     ) -> bool {
-        let r_interleaved: Vec<F> = sponge.squeeze_field_elements(4 * self.m);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_interleaved: Vec<F> =
+            get_field_elements_from_prng(4 * self.m, seed.try_into().unwrap());
+
         let w = self.reed_solomon(interleaved_proof);
 
         let queried_columns = get_distinct_indices_from_prng(self.n, self.t);
@@ -555,7 +562,9 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u_polys: &Vec<DensePolynomial<F>>,
         sponge: &mut impl CryptographicSponge,
     ) -> DensePolynomial<F> {
-        let r_linear: Vec<F> = sponge.squeeze_field_elements(4 * self.m * self.k);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_linear: Vec<F> =
+            get_field_elements_from_prng(4 * self.m * self.k, seed.try_into().unwrap());
         let r_a = self.a.row_mul(&r_linear);
         let r_a_rows = r_a.chunks_exact(self.k).map(|row| row.to_vec());
 
@@ -579,7 +588,10 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u: &DenseMatrix<F>,
         sponge: &mut impl CryptographicSponge,
     ) -> bool {
-        let r_linear: Vec<F> = sponge.squeeze_field_elements(4 * self.m * self.k);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_linear: Vec<F> =
+            get_field_elements_from_prng(4 * self.m * self.k, seed.try_into().unwrap());
+
         let r_a = self.a.row_mul(&r_linear);
         let r_a_rows = r_a.chunks_exact(self.k).map(|row| row.to_vec());
 
@@ -633,7 +645,8 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u_xyz_polys: Vec<DensePolynomial<F>>,
         sponge: &mut impl CryptographicSponge,
     ) -> DensePolynomial<F> {
-        let r_quadratic: Vec<F> = sponge.squeeze_field_elements(self.m);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_quadratic: Vec<F> = get_field_elements_from_prng(self.m, seed.try_into().unwrap());
 
         let (p_x, u_yz) = u_xyz_polys.split_at(self.m);
         let (p_y, p_z) = u_yz.split_at(self.m);
@@ -650,7 +663,8 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         u: &DenseMatrix<F>,
         sponge: &mut impl CryptographicSponge,
     ) -> bool {
-        let r_quadratic: Vec<F> = sponge.squeeze_field_elements(self.m);
+        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let r_quadratic: Vec<F> = get_field_elements_from_prng(self.m, seed.try_into().unwrap());
 
         // q(v) = sum_{i = 1}^{3m} r_i * (p_i_x(v) * p_i_y(v) - p_i_z(v))
         if quadratic_proof.degree() >= 2 * self.k - 1 {

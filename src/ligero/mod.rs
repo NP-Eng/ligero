@@ -813,15 +813,21 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             } else {
                 linear_proof.evaluate(&point)
             };
-            (point, eval)
+            (j, eval)
         });
 
+        // TODO this can become slower than individual evaluation at single points if t << n
+        let r_polys_evals: Vec<Vec<F>> = r_polys
+            .iter()
+            .map(|poly| self.reed_solomon_evaluate(poly.coeffs.clone()))
+            .collect();
+
         // sum_i^m r_i(eta_j) * U_{i, j} = q(eta_j)
-        q_evals.zip(columns.iter()).all(|((point, eval), column)| {
-            r_polys
+        q_evals.zip(columns.iter()).all(|((j, eval), column)| {
+            r_polys_evals
                 .iter()
                 .enumerate()
-                .map(|(i, r)| r.evaluate(&point) * column[i])
+                .map(|(i, r_i_evals)| r_i_evals[j] * column[i])
                 .sum::<F>()
                 == eval
         })

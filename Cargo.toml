@@ -2,6 +2,8 @@
 name = "ligero"
 version = "0.1.0"
 edition = "2021"
+categories = ["cryptography"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 ark-std = { version = "0.5.0-alpha", default-features = false }
@@ -19,10 +21,15 @@ derivative = { version = "2", features = [ "use_core" ] }
 criterion = { version = "0.5", default-features = false }
 num-bigint = "0.4.0"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
+rand_chacha = { version = "0.3.0", default-features = false }
 
 [dev-dependencies]
 ark-bn254 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
+ark-bls12-381 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
+ark-bls12-377 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
 ark-poly-commit = { git = "ssh://git@github.com/HungryCatsStudio/poly-commit-naysayer", branch = "release-0.5", default-features = false, features = [ "test-types" ] }
+serde = { version = "1.0.104", features = ["derive"] }
+serde_json = "1.0.48"
 
 [features]
 default = [ "std" ]

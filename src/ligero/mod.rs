@@ -11,11 +11,7 @@ use ark_poly::{
 use ark_poly_commit::linear_codes::{calculate_t, create_merkle_tree};
 use ark_std::cfg_into_iter;
 use itertools::{izip, Itertools};
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-    vec,
-};
+use std::{borrow::Borrow, collections::HashMap, vec};
 
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},

@@ -1,4 +1,3 @@
-use ark_circom::circom;
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{Field, UniformRand};
 use ark_std::test_rng;

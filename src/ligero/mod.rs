@@ -26,7 +26,7 @@ use crate::{
 
 #[cfg(test)]
 mod tests;
-mod types;
+pub mod types;
 
 // TODO: optimise: when can one evaluate the interpolating polynomial at the
 // queried points instead of computing the whole RS encoding in the three

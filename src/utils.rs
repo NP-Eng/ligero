@@ -14,6 +14,12 @@ pub(crate) fn scalar_product<F: PrimeField>(a: &Vec<F>, b: &Vec<F>) -> F {
     a.iter().zip(b.iter()).map(|(a, b)| *a * *b).sum()
 }
 
+#[inline]
+pub(crate) fn scalar_product_checked<F: PrimeField>(a: &Vec<F>, b: &Vec<F>) -> F {
+    assert!(a.len() == b.len());
+    scalar_product(a, b)
+}
+
 pub(crate) fn get_field_elements_from_prng<F: PrimeField>(
     n: usize,
     seed: [u8; CHACHA_SEED_BYTES],
@@ -22,8 +28,12 @@ pub(crate) fn get_field_elements_from_prng<F: PrimeField>(
     (0..n).map(|_| F::rand(&mut rng)).collect()
 }
 
-pub(crate) fn get_distinct_indices_from_prng(n: usize, t: usize) -> Vec<usize> {
-    let mut rng = ChaCha20Rng::from_entropy();
+pub(crate) fn get_distinct_indices_from_prng(
+    n: usize,
+    t: usize,
+    seed: [u8; CHACHA_SEED_BYTES],
+) -> Vec<usize> {
+    let mut rng = ChaCha20Rng::from_seed(seed);
 
     // Squeeze t elements, then removing duplicates. Crucially, this must be
     // done deterministically to ensure prover-verifier consistency.

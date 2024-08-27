@@ -1,12 +1,18 @@
-use ark_crypto_primitives::sponge::{Absorb, CryptographicSponge};
+use ark_crypto_primitives::{
+    crh::{CRHScheme, TwoToOneCRHScheme},
+    merkle_tree::{Config, MerkleTree, Path},
+    sponge::{Absorb, CryptographicSponge},
+};
 use ark_ff::PrimeField;
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
     Polynomial,
 };
-use ark_poly_commit::linear_codes::calculate_t;
-use itertools::izip;
+use ark_poly_commit::linear_codes::{calculate_t, create_merkle_tree};
+use ark_std::cfg_into_iter;
+use itertools::{izip, Itertools};
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
     vec,
 };
@@ -14,16 +20,35 @@ use std::{
 use crate::{
     arithmetic_circuit::{ArithmeticCircuit, Node},
     matrices::{DenseMatrix, SparseMatrix},
-    utils::{get_distinct_indices_from_prng, get_field_elements_from_prng},
+    utils::{get_distinct_indices_from_prng, get_field_elements_from_prng, scalar_product_checked},
     CHACHA_SEED_BYTES,
 };
 
 #[cfg(test)]
 mod tests;
+mod types;
 
 // TODO: optimise: when can one evaluate the interpolating polynomial at the
 // queried points instead of computing the whole RS encoding in the three
 // individual tests?
+
+pub trait LigeroMTParams<C, H>
+where
+    C: Config + 'static,
+    H: CRHScheme + 'static,
+    C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+    H::Output: Into<C::Leaf>,
+{
+    /// Get the hash parameters for obtaining leaf digest from leaf value.
+    fn leaf_hash_param(&self) -> &<C::LeafHash as CRHScheme>::Parameters;
+
+    /// Get the parameters for hashing nodes in the merkle tree.
+    fn two_to_one_hash_param(&self) -> &<C::TwoToOneHash as TwoToOneCRHScheme>::Parameters;
+
+    /// Get the parameters for hashing a vector of values,
+    /// representing a column of the coefficient matrix, into a leaf value.
+    fn col_hash_params(&self) -> &H::Parameters;
+}
 
 pub struct LigeroCircuit<F: PrimeField> {
     /// Arithmetic circuit to be proved (formatted)
@@ -51,9 +76,9 @@ pub struct LigeroCircuit<F: PrimeField> {
     /// Number of rows of the `P`` matrices prior to encoding
     m: usize,
 
-    /// `l` and `k`` from the paper, which are made to coincide. This Number of
-    /// columns of the P matrices prior to encoding, as well as the size of the
-    /// small FFT domain
+    /// `l` and `k` from the paper, which are made to coincide. This is the
+    /// number of columns of the P matrices prior to encoding, as well as the
+    /// size of the small FFT domain
     k: usize,
 
     /// Block length of the Reed Solomon code
@@ -72,22 +97,54 @@ pub struct LigeroCircuit<F: PrimeField> {
     intermediate_domain: GeneralEvaluationDomain<F>,
 }
 
-pub struct LigeroProof<F: PrimeField> {
-    // Matrix U = [U_x
-    //             U_y
-    //             U_z
-    //             U_w]
+pub struct LigeroProof<F: PrimeField, C: Config> {
+    // Merkle commitment to the matrix
+    // U = [U_x
+    //      U_y
+    //      U_z
+    //      U_w]
     // purportedly encoding x || y || z || w as defined in the reference
-    u: DenseMatrix<F>,
+    u_root: C::InnerDigest,
 
     // Proof for Test-Interleaved
-    interleaved_proof: Vec<F>,
+    interleaved_proof: InterleavedProof<F, C>,
 
     // Proof for Test-Linear-Constraints
-    linear_constraints_proof: DensePolynomial<F>,
+    linear_constraints_proof: LinearConstraintsProof<F, C>,
 
     // Proof for Test-Quadratic-Constraints
-    quadratic_constraints_proof: DensePolynomial<F>,
+    quadratic_constraints_proof: QuadraticConstraintsProof<F, C>,
+}
+
+/// Proof for the Test-Interleaved protocol
+pub struct InterleavedProof<F, C>
+where
+    F: PrimeField,
+    C: Config,
+{
+    preenc_u_lc: Vec<F>,
+    columns: Vec<Vec<F>>,
+    paths: Vec<Path<C>>,
+}
+
+pub struct LinearConstraintsProof<F, C>
+where
+    F: PrimeField,
+    C: Config,
+{
+    polynomial: DensePolynomial<F>,
+    columns: Vec<Vec<F>>,
+    paths: Vec<Path<C>>,
+}
+
+pub struct QuadraticConstraintsProof<F, C>
+where
+    F: PrimeField,
+    C: Config,
+{
+    polynomial: DensePolynomial<F>,
+    columns: Vec<Vec<F>>,
+    paths: Vec<Path<C>>,
 }
 
 impl<F: PrimeField + Absorb> LigeroCircuit<F> {
@@ -379,24 +436,42 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         upper.v_stack(lower)
     }
 
-    pub fn prove(
+    pub fn prove<C, H, P>(
         &self,
         var_assignment: Vec<(usize, F)>,
+        mt_params: &P,
         sponge: &mut impl CryptographicSponge,
-    ) -> LigeroProof<F> {
+    ) -> LigeroProof<F, C>
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
         let var_assignment = var_assignment
             .into_iter()
             .map(|(i, f)| (Self::bump_index(self.one_index, self.one_found, i), f))
             .collect();
 
-        self.prove_inner(var_assignment, sponge)
+        self.prove_inner(mt_params, var_assignment, sponge)
     }
 
-    fn prove_inner(
+    fn prove_inner<C, H, P>(
         &self,
+        mt_params: &P,
         var_assignment: Vec<(usize, F)>,
         sponge: &mut impl CryptographicSponge,
-    ) -> LigeroProof<F> {
+    ) -> LigeroProof<F, C>
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
         // TODO initialise sponge, absorb maybe x, y, z
 
         // TODO: FS more generally, especially absorptions
@@ -461,36 +536,67 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
                 .collect(),
         );
 
-        let u_polys: Vec<DensePolynomial<F>> = u_polynomial_coeffs
-            .into_iter()
-            .map(|row| DensePolynomial::from_coefficients_vec(row))
+        // Merkle-committing to the matrix U
+        let mut leaves: Vec<C::Leaf> = cfg_into_iter!(u.columns())
+            .map(|col| {
+                H::evaluate(P::col_hash_params(mt_params), col)
+                    .unwrap()
+                    .into()
+            })
             .collect();
 
-        sponge.absorb(&u.rows.concat());
+        let u_tree = create_merkle_tree::<C>(
+            &mut leaves,
+            mt_params.leaf_hash_param(),
+            mt_params.two_to_one_hash_param(),
+        )
+        .unwrap();
 
-        let interleaved_proof = self.prove_interleaved(&preenc_u, sponge);
+        let u_root = u_tree.root();
 
-        let linear_constraints_proof = self.prove_linear_constraints(&u_polys, sponge);
+        // Constructing polynomials from the rows of U for the linera and
+        // quadratic proofs
+        let u_polys: Vec<DensePolynomial<F>> = u_polynomial_coeffs
+            .into_iter()
+            .map(DensePolynomial::from_coefficients_vec)
+            .collect();
+
+        sponge.absorb(&u_root);
+
+        let interleaved_proof = self.prove_interleaved(&preenc_u, &u, &u_tree, sponge);
+
+        let linear_constraints_proof = self.prove_linear_constraints(&u_polys, &u, &u_tree, sponge);
 
         let mut u_xyz_polys = u_polys;
         u_xyz_polys.truncate(3 * self.m);
 
-        let quadratic_constraints_proof = self.prove_quadratic_constraints(u_xyz_polys, sponge);
+        let quadratic_constraints_proof =
+            self.prove_quadratic_constraints(u_xyz_polys, &u, &u_tree, sponge);
 
         LigeroProof {
-            u,
+            u_root,
             interleaved_proof,
             linear_constraints_proof,
             quadratic_constraints_proof,
         }
     }
 
-    pub fn prove_with_labels(
+    pub fn prove_with_labels<C, H, P>(
         &self,
         var_assignment: Vec<(&str, F)>,
+        mt_params: &P,
         sponge: &mut impl CryptographicSponge,
-    ) -> LigeroProof<F> {
+    ) -> LigeroProof<F, C>
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
         self.prove_inner(
+            mt_params,
             var_assignment
                 .into_iter()
                 .map(|(label, value)| {
@@ -508,60 +614,112 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         )
     }
 
-    pub fn verify(&self, proof: LigeroProof<F>, sponge: &mut impl CryptographicSponge) -> bool {
+    pub fn verify<C, H, P>(
+        &self,
+        proof: LigeroProof<F, C>,
+        mt_params: &P,
+        sponge: &mut impl CryptographicSponge,
+    ) -> bool
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
         let LigeroProof {
-            u,
+            u_root,
             interleaved_proof,
             linear_constraints_proof,
             quadratic_constraints_proof,
         } = proof;
 
-        sponge.absorb(&u.rows.concat());
+        sponge.absorb(&u_root);
 
-        self.verify_interleaved(interleaved_proof, &u, sponge)
-            && self.verify_linear(linear_constraints_proof, &u, sponge)
-            && self.verify_quadratic_constraints(quadratic_constraints_proof, &u, sponge)
+        self.verify_interleaved(&interleaved_proof, mt_params, &u_root, sponge)
+            && self.verify_linear(&linear_constraints_proof, mt_params, &u_root, sponge)
+            && self.verify_quadratic_constraints(
+                &quadratic_constraints_proof,
+                mt_params,
+                &u_root,
+                sponge,
+            )
     }
 
-    fn prove_interleaved(
+    fn prove_interleaved<C: Config>(
         &self,
-        u_preenc: &DenseMatrix<F>,
-        sponge: &mut impl CryptographicSponge,
-    ) -> Vec<F> {
-        let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
-        let r_interleaved: Vec<F> =
-            get_field_elements_from_prng(4 * self.m, seed.try_into().unwrap());
-
-        u_preenc.row_mul(&r_interleaved)
-    }
-
-    fn verify_interleaved(
-        &self,
-        interleaved_proof: Vec<F>,
+        preenc_u: &DenseMatrix<F>,
         u: &DenseMatrix<F>,
+        u_tree: &MerkleTree<C>,
         sponge: &mut impl CryptographicSponge,
-    ) -> bool {
+    ) -> InterleavedProof<F, C> {
+        let seed_r = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+
+        let r_interleaved: Vec<F> =
+            get_field_elements_from_prng(4 * self.m, seed_r.try_into().unwrap());
+
+        let preenc_u_lc = preenc_u.row_mul(&r_interleaved);
+
+        sponge.absorb(&preenc_u_lc);
+
+        let (columns, paths) = self.open_columns(u, u_tree, sponge);
+
+        InterleavedProof {
+            preenc_u_lc,
+            columns,
+            paths,
+        }
+    }
+
+    fn verify_interleaved<C, H, P>(
+        &self,
+        interleaved_proof: &InterleavedProof<F, C>,
+        mt_params: &P,
+        u_root: &C::InnerDigest,
+        sponge: &mut impl CryptographicSponge,
+    ) -> bool
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
+        let InterleavedProof {
+            preenc_u_lc,
+            columns,
+            paths,
+        } = interleaved_proof;
+
         let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
         let r_interleaved: Vec<F> =
             get_field_elements_from_prng(4 * self.m, seed.try_into().unwrap());
 
-        let w = self.reed_solomon(interleaved_proof);
+        sponge.absorb(&preenc_u_lc);
 
-        let queried_columns = get_distinct_indices_from_prng(self.n, self.t);
+        if !self.verify_column_openings(columns, &paths, mt_params, u_root, sponge) {
+            return false;
+        }
+
+        let w = self.reed_solomon(preenc_u_lc.clone());
 
         // Testing w = r^T * U at a few random positions
-        queried_columns.into_iter().all(|col|
+        paths.iter().zip(columns.iter()).all(|(path, col)|
             // The right hand side is the scalar pdocut of r^T and the col-th column of U
-            w[col] == r_interleaved.iter().enumerate().map(|(i, r)| *r * u.rows[i][col]).sum())
+            w[path.leaf_index] == scalar_product_checked(&r_interleaved, col))
     }
 
     // Implements the proving part of Test-Linear-Constraints in the case b = 0,
     // which is the only relevant one for Ligero
-    fn prove_linear_constraints(
+    fn prove_linear_constraints<C: Config>(
         &self,
         u_polys: &Vec<DensePolynomial<F>>,
+        u: &DenseMatrix<F>,
+        u_tree: &MerkleTree<C>,
         sponge: &mut impl CryptographicSponge,
-    ) -> DensePolynomial<F> {
+    ) -> LinearConstraintsProof<F, C> {
         let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
         let r_linear: Vec<F> =
             get_field_elements_from_prng(4 * self.m * self.k, seed.try_into().unwrap());
@@ -574,20 +732,45 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             .map(DensePolynomial::from_coefficients_vec)
             .collect();
 
-        r_polys
+        let linear_constraint_poly = u_polys
             .iter()
-            .zip(u_polys.iter())
+            .zip(r_polys.iter())
             .map(|(r, p)| r * p)
             .reduce(|acc, p| acc + p)
-            .unwrap()
+            .unwrap();
+
+        sponge.absorb(&linear_constraint_poly.coeffs);
+
+        let (columns, paths) = self.open_columns(u, u_tree, sponge);
+
+        LinearConstraintsProof {
+            polynomial: linear_constraint_poly,
+            columns,
+            paths,
+        }
     }
 
-    fn verify_linear(
+    fn verify_linear<C, H, P>(
         &self,
-        linear_proof: DensePolynomial<F>,
-        u: &DenseMatrix<F>,
+        linear_proof: &LinearConstraintsProof<F, C>,
+        mt_params: &P,
+        u_root: &C::InnerDigest,
         sponge: &mut impl CryptographicSponge,
-    ) -> bool {
+    ) -> bool
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
+        let LinearConstraintsProof {
+            polynomial: linear_proof,
+            columns,
+            paths,
+        } = linear_proof;
+
         let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
         let r_linear: Vec<F> =
             get_field_elements_from_prng(4 * self.m * self.k, seed.try_into().unwrap());
@@ -616,53 +799,90 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
             return false;
         }
 
-        let queried_columns: HashSet<usize> =
-            HashSet::from_iter(get_distinct_indices_from_prng(self.n, self.t).into_iter());
+        sponge.absorb(&linear_proof.coeffs);
 
-        let mut q_evals = queried_columns.into_iter().map(|j| {
+        if !self.verify_column_openings(columns, &paths, mt_params, u_root, sponge) {
+            return false;
+        }
+
+        let q_evals = paths.into_iter().map(|path| {
+            let j = path.leaf_index;
             let point = self.large_domain.element(j);
             let eval = if j % cofactor == 0 {
                 intermediate_evals[j / cofactor]
             } else {
                 linear_proof.evaluate(&point)
             };
-            (j, point, eval)
+            (j, eval)
         });
 
+        // TODO this can become slower than individual evaluation at single points if t << n
+        let r_polys_evals: Vec<Vec<F>> = r_polys
+            .iter()
+            .map(|poly| self.reed_solomon_evaluate(poly.coeffs.clone()))
+            .collect();
+
         // sum_i^m r_i(eta_j) * U_{i, j} = q(eta_j)
-        q_evals.all(|(j, point, eval)| {
-            r_polys
+        q_evals.zip(columns.iter()).all(|((j, eval), column)| {
+            r_polys_evals
                 .iter()
-                .zip(u.rows.iter())
-                .map(|(r, u_row)| r.evaluate(&point) * u_row[j])
+                .enumerate()
+                .map(|(i, r_i_evals)| r_i_evals[j] * column[i])
                 .sum::<F>()
                 == eval
         })
     }
 
-    fn prove_quadratic_constraints(
+    fn prove_quadratic_constraints<C: Config>(
         &self,
         u_xyz_polys: Vec<DensePolynomial<F>>,
+        u: &DenseMatrix<F>,
+        u_tree: &MerkleTree<C>,
         sponge: &mut impl CryptographicSponge,
-    ) -> DensePolynomial<F> {
+    ) -> QuadraticConstraintsProof<F, C> {
         let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
         let r_quadratic: Vec<F> = get_field_elements_from_prng(self.m, seed.try_into().unwrap());
 
         let (p_x, u_yz) = u_xyz_polys.split_at(self.m);
         let (p_y, p_z) = u_yz.split_at(self.m);
 
-        izip!(p_x.iter(), p_y.iter(), p_z.iter(), r_quadratic.iter())
+        let quad_constraint_poly = izip!(p_x.iter(), p_y.iter(), p_z.iter(), r_quadratic.iter())
             .map(|(p_x, p_y, p_z, r)| &(&(p_x * p_y) - p_z) * *r)
             .reduce(|acc, p| acc + p)
-            .unwrap()
+            .unwrap();
+
+        sponge.absorb(&quad_constraint_poly.coeffs);
+
+        let (columns, paths) = self.open_columns(&u, &u_tree, sponge);
+
+        QuadraticConstraintsProof {
+            polynomial: quad_constraint_poly,
+            columns,
+            paths,
+        }
     }
 
-    fn verify_quadratic_constraints(
+    fn verify_quadratic_constraints<C, H, P>(
         &self,
-        quadratic_proof: DensePolynomial<F>,
-        u: &DenseMatrix<F>,
+        quadratic_proof: &QuadraticConstraintsProof<F, C>,
+        mt_params: &P,
+        u_root: &C::InnerDigest,
         sponge: &mut impl CryptographicSponge,
-    ) -> bool {
+    ) -> bool
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
+        let QuadraticConstraintsProof {
+            polynomial: quadratic_proof,
+            columns,
+            paths,
+        } = quadratic_proof;
+
         let seed = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
         let r_quadratic: Vec<F> = get_field_elements_from_prng(self.m, seed.try_into().unwrap());
 
@@ -684,9 +904,15 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         // Cofactor of the intermediate domain inside the large domain,
         let cofactor = self.n / (2 * self.k);
 
-        let queried_columns = get_distinct_indices_from_prng(self.n, self.t);
+        sponge.absorb(&quadratic_proof.coeffs);
 
-        queried_columns.into_iter().all(|col| {
+        if !self.verify_column_openings(&columns, &paths, mt_params, u_root, sponge) {
+            return false;
+        }
+
+        paths.into_iter().zip(columns.iter()).all(|(path, column)| {
+            let col = path.leaf_index;
+
             // Computing the left-hand side p_0(large_domain[j])
             let lhs = if col % cofactor == 0 {
                 // In this case, the evaluation point is in the intermediate
@@ -702,11 +928,74 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
                 .enumerate()
                 .map(|(i, r_i)| {
                     //     U_{i, j}^x       U_{i, j}^x                U_{i, j}^x
-                    *r_i * (u.rows[i][col] * u.rows[i + self.m][col] - u.rows[i + 2 * self.m][col])
+                    *r_i * (column[i] * column[i + self.m] - column[i + 2 * self.m])
                 })
                 .sum();
 
             lhs == rhs
+        })
+    }
+
+    fn open_columns<C: Config>(
+        &self,
+        u: &DenseMatrix<F>,
+        u_tree: &MerkleTree<C>,
+        sponge: &mut impl CryptographicSponge,
+    ) -> (Vec<Vec<F>>, Vec<Path<C>>) {
+        let seed_cols = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let indices = get_distinct_indices_from_prng(self.n, self.t, seed_cols.try_into().unwrap());
+
+        let columns = indices
+            .iter()
+            .map(|i| u.column(*i).clone())
+            .collect::<Vec<_>>();
+
+        let paths = indices
+            .iter()
+            .map(|i| u_tree.generate_proof(*i).unwrap())
+            .collect_vec();
+
+        (columns, paths)
+    }
+
+    fn verify_column_openings<P, C, H>(
+        &self,
+        columns: &Vec<Vec<F>>,
+        paths: &Vec<Path<C>>,
+        mt_params: &P,
+        u_root: &C::InnerDigest,
+        sponge: &mut impl CryptographicSponge,
+    ) -> bool
+    where
+        C: Config + 'static,
+        H: CRHScheme + 'static,
+        C::Leaf: Sized + Clone + Default + Send + AsRef<C::Leaf>,
+        H::Output: Into<C::Leaf>,
+        P: LigeroMTParams<C, H>,
+        Vec<F>: Borrow<<H as CRHScheme>::Input>,
+    {
+        let seed_cols = sponge.squeeze_bytes(CHACHA_SEED_BYTES);
+        let indices = get_distinct_indices_from_prng(self.n, self.t, seed_cols.try_into().unwrap());
+
+        let col_hashes = columns
+            .iter()
+            .map(|col| {
+                H::evaluate(mt_params.col_hash_params(), col.clone())
+                    .unwrap()
+                    .into()
+            })
+            .collect::<Vec<_>>();
+
+        izip!(col_hashes.into_iter(), indices.into_iter(), paths).all(|(col_hash, i, path)| {
+            path.leaf_index == i
+                && path
+                    .verify(
+                        mt_params.leaf_hash_param(),
+                        mt_params.two_to_one_hash_param(),
+                        u_root,
+                        col_hash,
+                    )
+                    .is_ok()
         })
     }
 

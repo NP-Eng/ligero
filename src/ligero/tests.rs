@@ -30,6 +30,8 @@ use ark_relations::r1cs::ConstraintSystem;
 use ark_std::test_rng;
 use itertools::Itertools;
 
+use super::types::LigeroMTTestParams;
+
 #[test]
 fn test_construction_bls12_377() {
     // Circuit with only one constant: the initial 1
@@ -148,9 +150,11 @@ fn proof_and_verify<F: PrimeField + Absorb>(
 
     let sponge: PoseidonSponge<F> = test_sponge();
 
-    let proof = ligero_circuit.prove(vars.clone(), &mut sponge.clone());
+    let mt_params = LigeroMTTestParams::new();
 
-    ligero_circuit.verify(proof, &mut sponge.clone())
+    let proof = ligero_circuit.prove(vars.clone(), &mt_params, &mut sponge.clone());
+
+    ligero_circuit.verify(proof, &mt_params, &mut sponge.clone())
 }
 
 fn test_proof_and_verify<F: PrimeField + Absorb>(
@@ -346,12 +350,15 @@ pub fn test_multioutput_1() {
     let mut prover_sponge = sponge.clone();
     let mut verifier_sponge = sponge;
 
+    let mt_params = LigeroMTTestParams::new();
+
     let proof = ligero.prove_with_labels(
         vec![("x", Fr::from(3)), ("y", Fr::from(4))],
+        &mt_params,
         &mut prover_sponge,
     );
 
-    assert!(ligero.verify(proof, &mut verifier_sponge));
+    assert!(ligero.verify(proof, &mt_params, &mut verifier_sponge));
 }
 
 #[test]
@@ -390,18 +397,19 @@ pub fn test_poseidon() {
     let ligero = LigeroCircuit::new(circuit, outputs, DEFAULT_SECURITY_LEVEL);
 
     let mut sponge: PoseidonSponge<Fr> = test_sponge();
+    let mt_params = LigeroMTTestParams::new();
 
     let start = std::time::Instant::now();
 
     println!("Proving LigeroCircuit...");
-    let proof = ligero.prove(var_assignment, &mut sponge.clone());
+    let proof = ligero.prove(var_assignment, &mt_params, &mut sponge.clone());
 
     println!("Time to prove: {:?}", start.elapsed());
 
     let start = std::time::Instant::now();
 
     println!("Verifying LigeroCircuit...");
-    assert!(ligero.verify(proof, &mut sponge));
+    assert!(ligero.verify(proof, &mt_params, &mut sponge));
 
     println!("Time to verify: {:?}", start.elapsed());
 }

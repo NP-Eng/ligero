@@ -155,6 +155,20 @@ impl<F: PrimeField> DenseMatrix<F> {
                 .collect(),
         }
     }
+
+    pub(crate) fn num_columns(&self) -> usize {
+        self.rows[0].len()
+    }
+
+    pub(crate) fn columns(&self) -> Vec<Vec<F>> {
+        (0..self.num_columns())
+            .map(|col| self.rows.iter().map(|row| row[col]).collect())
+            .collect()
+    }
+
+    pub(crate) fn column(&self, col: usize) -> Vec<F> {
+        self.rows.iter().map(|row| row[col]).collect()
+    }
 }
 
 #[cfg(test)]

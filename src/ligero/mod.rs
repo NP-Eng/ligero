@@ -97,6 +97,7 @@ pub struct LigeroCircuit<F: PrimeField> {
     intermediate_domain: GeneralEvaluationDomain<F>,
 }
 
+#[derive(Clone)]
 pub struct LigeroProof<F: PrimeField, C: Config> {
     // Merkle commitment to the matrix
     // U = [U_x
@@ -117,6 +118,7 @@ pub struct LigeroProof<F: PrimeField, C: Config> {
 }
 
 /// Proof for the Test-Interleaved protocol
+#[derive(Clone)]
 pub struct InterleavedProof<F, C>
 where
     F: PrimeField,
@@ -127,6 +129,7 @@ where
     paths: Vec<Path<C>>,
 }
 
+#[derive(Clone)]
 pub struct LinearConstraintsProof<F, C>
 where
     F: PrimeField,
@@ -137,6 +140,7 @@ where
     paths: Vec<Path<C>>,
 }
 
+#[derive(Clone)]
 pub struct QuadraticConstraintsProof<F, C>
 where
     F: PrimeField,

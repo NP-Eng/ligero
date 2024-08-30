@@ -22,6 +22,8 @@ num-bigint = "0.4.0"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 rand_chacha = { version = "0.3.0", default-features = false }
 blake2 = { version = "0.10", default-features = false }
+ark-bls12-377 = { version = "0.5.0-alpha", default-features = false, optional = true }
+ark-bn254 = { version = "0.5.0-alpha", default-features = false, optional = true }
 
 [dev-dependencies]
 ark-bn254 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
@@ -35,7 +37,7 @@ serde_json = "1.0.48"
 default = [ "std" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-poly/std", "ark-std/std", "ark-relations/std", "ark-serialize/std", "ark-crypto-primitives/std", "ark-poly-commit/std" ]
 test-types = [ "ark-poly-commit/test-types" ]
-bench = [ "std", "test-types" ]
+bench = [ "std", "test-types", "ark-bls12-377", "ark-bn254" ]
 
 [[bench]]
 name = "my_benchmark"

@@ -15,7 +15,7 @@ use ark_bn254::Fr as FrBN;
 use super::Node;
 
 // Defining equation of BLS12-377: y^2 = x^3 + 1 (over Fq)
-pub(crate) fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
+pub fn generate_bls12_377_circuit() -> ArithmeticCircuit<FqBLS> {
     let mut circuit = ArithmeticCircuit::new();
 
     // Ligero circuits must start with a constant 1

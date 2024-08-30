@@ -4,8 +4,8 @@ use std::{collections::HashMap, fmt::Display};
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 
-#[cfg(test)]
-pub(crate) mod tests;
+#[cfg(any(test, feature = "bench"))]
+pub mod tests;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Node<F> {

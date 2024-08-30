@@ -299,7 +299,7 @@ fn test_bls12_377_circuit() {
 
     let Affine { x, y, .. } = G1Affine::rand(&mut test_rng());
 
-    assert_eq!(y.pow(&[2]), x.pow(&[3]) + FqBLS::ONE);
+    assert_eq!(y.pow([2]), x.pow([3]) + FqBLS::ONE);
 
     let valid_assignment = vec![(1, x), (2, y)];
     assert_eq!(circuit.evaluate(valid_assignment.clone()), FqBLS::ONE);

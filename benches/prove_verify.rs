@@ -15,7 +15,7 @@ pub fn prover_benchmark(c: &mut Criterion) {
 
     let mt_params = LigeroMTTestParams::new();
 
-    c.bench_function("prove_Bls12_377_3-4", |b| {
+    c.bench_function("prove", |b| {
         b.iter(|| {
             ligero_circuit.prove_with_labels(
                 vec![("x", Fq::from(3)), ("y", Fq::from(4))],
@@ -40,7 +40,7 @@ pub fn verifier_benchmark(c: &mut Criterion) {
         &mut sponge.clone(),
     );
 
-    c.bench_function("verify_Bls12_377_3-4", |b| {
+    c.bench_function("verify", |b| {
         b.iter(|| ligero_circuit.verify(&proof, &mt_params, &mut sponge.clone()))
     });
 }

@@ -620,7 +620,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
     pub fn verify<C, H, P>(
         &self,
-        proof: LigeroProof<F, C>,
+        proof: &LigeroProof<F, C>,
         mt_params: &P,
         sponge: &mut impl CryptographicSponge,
     ) -> bool

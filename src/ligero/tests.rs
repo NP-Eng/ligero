@@ -154,7 +154,7 @@ fn proof_and_verify<F: PrimeField + Absorb>(
 
     let proof = ligero_circuit.prove(vars.clone(), &mt_params, &mut sponge.clone());
 
-    ligero_circuit.verify(proof, &mt_params, &mut sponge.clone())
+    ligero_circuit.verify(&proof, &mt_params, &mut sponge.clone())
 }
 
 fn test_proof_and_verify<F: PrimeField + Absorb>(
@@ -358,7 +358,7 @@ pub fn test_multioutput_1() {
         &mut prover_sponge,
     );
 
-    assert!(ligero.verify(proof, &mt_params, &mut verifier_sponge));
+    assert!(ligero.verify(&proof, &mt_params, &mut verifier_sponge));
 }
 
 #[test]
@@ -409,7 +409,7 @@ pub fn test_poseidon() {
     let start = std::time::Instant::now();
 
     println!("Verifying LigeroCircuit...");
-    assert!(ligero.verify(proof, &mt_params, &mut sponge));
+    assert!(ligero.verify(&proof, &mt_params, &mut sponge));
 
     println!("Time to verify: {:?}", start.elapsed());
 }

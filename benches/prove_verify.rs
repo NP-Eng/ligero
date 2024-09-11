@@ -30,7 +30,7 @@ fn generate_fibonacci_circuit(steps: usize) -> ArithmeticCircuit<Fr> {
 
 fn bench_prove_verify(c: &mut Criterion) {
     let mut group = c.benchmark_group("ligero");
-    for size in [10].iter() {
+    for size in [12, 16, 20].iter() {
         let steps = 1 << size;
         let circuit = generate_fibonacci_circuit(steps);
         let output_node = circuit.last();

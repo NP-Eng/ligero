@@ -3,7 +3,9 @@ use ark_crypto_primitives::{
     merkle_tree::{LeafParam, TwoToOneParam},
 };
 use ark_ff::PrimeField;
-use ark_poly_commit::{FieldToBytesColHasher, LeafIdentityHasher, TestMerkleTreeParams};
+use ark_poly_commit::test_types::{
+    FieldToBytesColHasher, LeafIdentityHasher, TestMerkleTreeParams,
+};
 use ark_std::rand::SeedableRng;
 use blake2::Blake2s256;
 use rand_chacha::ChaChaRng;

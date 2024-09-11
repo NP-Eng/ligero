@@ -14,12 +14,11 @@ ark-relations = { version = "0.5.0-alpha", default-features = false }
 ark-crypto-primitives = { version = "0.5.0-alpha", default-features = false, features = ["sponge"] }
 ark-ec = { version = "0.5.0-alpha", default-features = false }
 ark-serialize = { version = "0.5.0-alpha", default-features = false, features = ["derive"] }
-ark-poly-commit = { git = "https://github.com/HungryCatsStudio/poly-commit", branch = "release-0.5", default-features = false }
+ark-poly-commit = { git = "https://github.com/HungryCatsStudio/poly-commit", branch = "release-0.5", default-features = false, features = [ "test-types" ] }
 itertools = "0.10.0"
 derivative = { version = "2", features = [ "use_core" ] }
 criterion = { version = "0.5", default-features = false }
 num-bigint = "0.4.0"
-tiny-keccak = { version = "2.0", features = ["keccak"] }
 rand_chacha = { version = "0.3.0", default-features = false }
 blake2 = { version = "0.10", default-features = false }
 ark-bls12-377 = { version = "0.5.0-alpha", default-features = false, optional = true }
@@ -27,7 +26,6 @@ ark-bn254 = { version = "0.5.0-alpha", default-features = false, optional = true
 
 [dev-dependencies]
 ark-bn254 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
-ark-bls12-381 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
 ark-bls12-377 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
 ark-poly-commit = { git = "https://github.com/HungryCatsStudio/poly-commit", branch = "release-0.5", default-features = false, features = [ "test-types" ] }
 serde = { version = "1.0.104", features = ["derive"] }

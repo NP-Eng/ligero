@@ -171,8 +171,8 @@ fn test_indicator() {
     );
 }
 
-#[test]
-fn test_multiplication() {
+#[tokio::test]
+async fn test_multiplication() {
     let cs = read_constraint_system::<FrBN>(
         &format!(TEST_DATA_PATH!(), "multiplication.r1cs"),
         &format!(TEST_DATA_PATH!(), "multiplication.wasm"),
@@ -186,8 +186,8 @@ fn test_multiplication() {
     assert_eq!(circuit.evaluate(valid_assignment), FrBN::ONE);
 }
 
-#[test]
-fn test_cube_multioutput() {
+#[tokio::test]
+async fn test_cube_multioutput() {
     let r1cs = read_constraint_system::<FrBN>(
         &format!(TEST_DATA_PATH!(), "cube.r1cs"),
         &format!(TEST_DATA_PATH!(), "cube.wasm"),

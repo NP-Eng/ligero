@@ -361,8 +361,8 @@ pub fn test_multioutput_1() {
     assert!(ligero.verify(&proof, &mt_params, &mut verifier_sponge));
 }
 
-#[test]
-pub fn test_poseidon() {
+#[tokio::test]
+pub async fn test_poseidon() {
     println!("Reading R1CS from file...");
     let cs: ConstraintSystem<Fr> = read_constraint_system(
         "circom/poseidon/poseidon.r1cs",

@@ -5,7 +5,7 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 
 #[cfg(test)]
-pub(crate) mod tests;
+pub mod tests;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Node<F> {

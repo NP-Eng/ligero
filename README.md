@@ -107,3 +107,14 @@ A few caveats are in order:
 - A `LigeroCircuit` is constructed from an `ArithmeticCircuit` by designating some of its nodes as outputs. The proof system convinces the verifier that the value of each of those outputs with the witness provided by the prover is equal to one.
 - The proof system described in the reference paper is slightly expanded to naturally handle constants, which were not part of the original description.
 - Each `LigeroCircuit` starts with a constant node of value `1`, as necessitated by the proof system. This is handled transparently whenever an `ArithmeticCircuit` is compiled into a `LigeroCircuit`.
+
+## Benchmarks
+
+Currently, we construct a very simple `ArithmeticCircuit` over the scalar field of BN254 for computing n Fibonacci steps with only addition gates. Note that the parameters (e.g. matrix dimensions) have not been optimized.
+
+To run the benchmarks, use:
+```
+cargo bench
+```
+
+Sample results on a c5a.4xlarge AWS instance are shown in [benches/results.txt](benches/results.txt).

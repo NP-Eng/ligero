@@ -1,0 +1,8 @@
+ligero/prove_fibonacci/12
+                        time:   [1.9395 s 1.9431 s 1.9467 s]
+ligero/verify_fibonacci/12
+                        time:   [480.78 ms 482.80 ms 484.80 ms]
+ligero/prove_fibonacci/16
+                        time:   [11.330 s 11.341 s 11.352 s]
+ligero/verify_fibonacci/16
+                        time:   [2.5958 s 2.6023 s 2.6087 s]

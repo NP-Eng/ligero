@@ -22,7 +22,7 @@ use crate::{
 
 #[cfg(test)]
 mod tests;
-mod types;
+pub mod types;
 
 // TODO: optimise: when can one evaluate the interpolating polynomial at the
 // queried points instead of computing the whole RS encoding in the three
@@ -93,6 +93,7 @@ pub struct LigeroCircuit<F: PrimeField> {
     intermediate_domain: GeneralEvaluationDomain<F>,
 }
 
+#[derive(Clone)]
 pub struct LigeroProof<F: PrimeField, C: Config> {
     // Merkle commitment to the matrix
     // U = [U_x
@@ -113,6 +114,7 @@ pub struct LigeroProof<F: PrimeField, C: Config> {
 }
 
 /// Proof for the Test-Interleaved protocol
+#[derive(Clone)]
 pub struct InterleavedProof<F, C>
 where
     F: PrimeField,
@@ -123,6 +125,7 @@ where
     paths: Vec<Path<C>>,
 }
 
+#[derive(Clone)]
 pub struct LinearConstraintsProof<F, C>
 where
     F: PrimeField,
@@ -133,6 +136,7 @@ where
     paths: Vec<Path<C>>,
 }
 
+#[derive(Clone)]
 pub struct QuadraticConstraintsProof<F, C>
 where
     F: PrimeField,
@@ -612,7 +616,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
     pub fn verify<C, H, P>(
         &self,
-        proof: LigeroProof<F, C>,
+        proof: &LigeroProof<F, C>,
         mt_params: &P,
         sponge: &mut impl CryptographicSponge,
     ) -> bool

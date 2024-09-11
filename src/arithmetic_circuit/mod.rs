@@ -4,7 +4,7 @@ use std::{collections::HashMap, fmt::Display};
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 pub mod tests;
 
 #[derive(Debug, Clone, PartialEq)]

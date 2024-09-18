@@ -192,7 +192,7 @@ fn test_to_arithmetic_circuit_1() {
 
     assert_eq!(
         circuit.constants,
-        vec![(Fr::from(3), 5), (Fr::ONE, 2), (Fr::from(2), 0)]
+        [(Fr::from(3), 5), (Fr::ONE, 2), (Fr::from(2), 0)]
             .iter()
             .cloned()
             .collect::<HashMap<_, _>>()

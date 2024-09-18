@@ -144,11 +144,11 @@ impl<F: PrimeField> Expression<F> {
     }
 
     pub fn scalar_product(a: Vec<Expression<F>>, b: Vec<Expression<F>>) -> Expression<F> {
-        a.into_iter().zip(b.into_iter()).map(|(a, b)| a * b).sum()
+        a.into_iter().zip(b).map(|(a, b)| a * b).sum()
     }
 
     pub fn sparse_scalar_product(a: &Vec<(F, usize)>, b: &Vec<Expression<F>>) -> Expression<F> {
-        a.into_iter()
+        a.iter()
             .map(|(a, i)| b[*i].clone() * *a)
             .collect::<Vec<_>>()
             .into_iter()
@@ -166,7 +166,7 @@ impl<F: PrimeField> Expression<F> {
 
         let mut current = self.clone();
 
-        for bit in bits.into_iter() {
+        for bit in bits {
             current = current.clone() * current;
 
             if bit == 1 {

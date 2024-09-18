@@ -16,7 +16,6 @@ itertools = "0.10.0"
 derivative = { version = "2", features = [ "use_core" ] }
 criterion = { version = "0.5", default-features = false }
 num-bigint = "0.4.0"
-tiny-keccak = { version = "2.0", features = ["keccak"] }
 rand_chacha = { version = "0.3.0", default-features = false }
 blake2 = { version = "0.10", default-features = false }
 

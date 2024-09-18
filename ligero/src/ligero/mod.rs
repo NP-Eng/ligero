@@ -513,7 +513,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
         let preenc_z = self.as_matrix(z);
         let preenc_w = self.as_matrix(w);
 
-        let preenc_u = DenseMatrix::new(vec![preenc_x, preenc_y, preenc_z, preenc_w].concat());
+        let preenc_u = DenseMatrix::new([preenc_x, preenc_y, preenc_z, preenc_w].concat());
 
         // TODO check if the coefficient vector r needs to be distinct for each
         // sub-protocol
@@ -601,7 +601,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
                             .circuit
                             .variables
                             .get(label)
-                            .expect(&format!("Variable not found: {}", label)),
+                            .unwrap_or_else(|| panic!("Variable not found: {}", label)),
                         value,
                     )
                 })
@@ -695,7 +695,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         sponge.absorb(&preenc_u_lc);
 
-        if !self.verify_column_openings(columns, &paths, mt_params, u_root, sponge) {
+        if !self.verify_column_openings(columns, paths, mt_params, u_root, sponge) {
             return false;
         }
 
@@ -797,11 +797,11 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         sponge.absorb(&linear_proof.coeffs);
 
-        if !self.verify_column_openings(columns, &paths, mt_params, u_root, sponge) {
+        if !self.verify_column_openings(columns, paths, mt_params, u_root, sponge) {
             return false;
         }
 
-        let q_evals = paths.into_iter().map(|path| {
+        let q_evals = paths.iter().map(|path| {
             let j = path.leaf_index;
             let point = self.large_domain.element(j);
             let eval = if j % cofactor == 0 {
@@ -849,7 +849,7 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         sponge.absorb(&quad_constraint_poly.coeffs);
 
-        let (columns, paths) = self.open_columns(&u, &u_tree, sponge);
+        let (columns, paths) = self.open_columns(u, u_tree, sponge);
 
         QuadraticConstraintsProof {
             polynomial: quad_constraint_poly,
@@ -902,11 +902,11 @@ impl<F: PrimeField + Absorb> LigeroCircuit<F> {
 
         sponge.absorb(&quadratic_proof.coeffs);
 
-        if !self.verify_column_openings(&columns, &paths, mt_params, u_root, sponge) {
+        if !self.verify_column_openings(columns, paths, mt_params, u_root, sponge) {
             return false;
         }
 
-        paths.into_iter().zip(columns.iter()).all(|(path, column)| {
+        paths.iter().zip(columns.iter()).all(|(path, column)| {
             let col = path.leaf_index;
 
             // Computing the left-hand side p_0(large_domain[j])

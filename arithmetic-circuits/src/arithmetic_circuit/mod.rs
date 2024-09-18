@@ -95,7 +95,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     pub fn new_variable_with_label(&mut self, label: &str) -> usize {
         let index = self.push_node(Node::Variable(label.to_string()));
 
-        if let Some(_) = self.variables.insert(label.to_string(), index) {
+        if self.variables.insert(label.to_string(), index).is_some() {
             panic!("Variable label already in use: {label}");
         }
 
@@ -235,7 +235,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
     ) -> usize {
         let products = left
             .into_iter()
-            .zip(right.into_iter())
+            .zip(right)
             .map(|(l, r)| self.mul_unchecked(l, r))
             .collect::<Vec<_>>();
         self.add_nodes(products)
@@ -248,7 +248,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
 
     // Auxiliary recursive function which evaluation_trace wraps around
     fn inner_evaluate(&self, node_index: usize, node_assignments: &mut Vec<Option<F>>) {
-        if let Some(_) = node_assignments[node_index] {
+        if node_assignments[node_index].is_some() {
             return;
         }
 
@@ -477,7 +477,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         // Az (hadamard) Bz
         let pairwise_mul_a_b = a
             .into_iter()
-            .zip(b.into_iter())
+            .zip(b)
             .map(|(a, b)| circuit.mul(a, b))
             .collect::<Vec<_>>();
 
@@ -490,7 +490,7 @@ impl<F: PrimeField> ArithmeticCircuit<F> {
         // Az * Bz - Cz + 1
         let outputs = pairwise_mul_a_b
             .into_iter()
-            .zip(minus_c.into_iter())
+            .zip(minus_c)
             .map(|(ab, m_c)| circuit.add_nodes([ab, m_c, one]))
             .collect::<Vec<_>>();
 
@@ -590,11 +590,11 @@ pub(crate) fn filter_constants<F: PrimeField>(
                 Node::Add(left, right) | Node::Mul(left, right) => {
                     let updated_left = match nodes[*left] {
                         Node::Constant(c) => *constants.get(&c).unwrap(),
-                        _ => *filtered_indices.get(&left).unwrap(),
+                        _ => *filtered_indices.get(left).unwrap(),
                     };
                     let updated_right = match nodes[*right] {
                         Node::Constant(c) => *constants.get(&c).unwrap(),
-                        _ => *filtered_indices.get(&right).unwrap(),
+                        _ => *filtered_indices.get(right).unwrap(),
                     };
                     match node {
                         Node::Add(_, _) => Some(Node::Add(updated_left, updated_right)),

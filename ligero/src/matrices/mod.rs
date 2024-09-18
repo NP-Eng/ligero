@@ -26,7 +26,7 @@ impl<F: PrimeField> SparseMatrix<F> {
             num_cols,
             rows: rows
                 .iter()
-                .map(|row| row.iter().copied().collect())
+                .map(|row| row.to_vec())
                 .collect(),
         }
     }

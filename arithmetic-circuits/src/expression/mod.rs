@@ -1,16 +1,19 @@
 use crate::arithmetic_circuit::{filter_constants, ArithmeticCircuit, Node};
 use ark_ff::PrimeField;
-use itertools::Itertools;
-use std::{
+use ark_std::{
     collections::HashMap,
     fmt::Display,
     iter::{Product, Sum},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     rc::Rc,
 };
+use itertools::Itertools;
+
+#[cfg(any(feature = "examples", test))]
+pub mod examples;
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
 
 /// Utilities that expose a user-friendly way to construct arithmetic circuits,
 /// with syntax along the lines of:

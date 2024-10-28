@@ -1,8 +1,5 @@
-pub mod arithmetic_circuit;
-pub mod expression;
 pub mod ligero;
 pub(crate) mod matrices;
-pub mod reader;
 pub(crate) mod utils;
 
 pub const DEFAULT_SECURITY_LEVEL: usize = 128;

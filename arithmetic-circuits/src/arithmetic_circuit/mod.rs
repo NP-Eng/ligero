@@ -1,14 +1,17 @@
+use ark_std::{collections::HashMap, fmt::Display};
 use num_bigint::BigUint;
-use std::{collections::HashMap, fmt::Display};
 
 use ark_ff::{BigInteger, PrimeField};
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem};
 
+#[cfg(feature = "examples")]
+pub mod examples;
+
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Node<F> {
+pub enum Node<F> {
     /// Variable set individually for each execution
     // Since no two variables have the same label, no memory cost is incurred
     // due to owning the string as opposed to a &'a str
@@ -26,11 +29,11 @@ pub(crate) enum Node<F> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArithmeticCircuit<F: PrimeField> {
     // List of nodes of the circuit
-    pub(crate) nodes: Vec<Node<F>>,
+    pub nodes: Vec<Node<F>>,
     // Hash map of constants defined in the circuit in order to avoid duplication
-    pub(crate) constants: HashMap<F, usize>,
+    pub constants: HashMap<F, usize>,
     // Map from variable labels to node indices
-    pub(crate) variables: HashMap<String, usize>,
+    pub variables: HashMap<String, usize>,
     // Big-endian bit decomposition of F::MODULUS - 1, without initial zeros
     pub(crate) unit_group_bits: Option<Vec<bool>>,
 }

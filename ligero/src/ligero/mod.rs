@@ -1,3 +1,4 @@
+use arithmetic_circuits::arithmetic_circuit::{ArithmeticCircuit, Node};
 use ark_crypto_primitives::{
     crh::{CRHScheme, TwoToOneCRHScheme},
     merkle_tree::{Config, MerkleTree, Path},
@@ -14,7 +15,6 @@ use itertools::{izip, Itertools};
 use std::{borrow::Borrow, collections::HashMap, vec};
 
 use crate::{
-    arithmetic_circuit::{ArithmeticCircuit, Node},
     matrices::{DenseMatrix, SparseMatrix},
     utils::{get_distinct_indices_from_prng, get_field_elements_from_prng, scalar_product_checked},
     CHACHA_SEED_BYTES,

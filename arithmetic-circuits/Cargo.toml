@@ -1,0 +1,27 @@
+[package]
+name = "arithmetic-circuits"
+version = "0.1.0"
+readme = "README.md"
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ark-std = { workspace = true }
+ark-ff = { workspace = true }
+ark-ec = { workspace = true }
+ark-circom = { workspace = true }
+ark-relations = { workspace = true }
+itertools = { workspace = true }
+num-bigint = { workspace = true }
+ark-bn254 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
+ark-bls12-381 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
+ark-bls12-377 = { version = "0.5.0-alpha", default-features = false, features = [ "curve" ] }
+
+[features]
+default = [ "std" ]
+std = [ "ark-ff/std", "ark-ec/std", "ark-std/std" ]
+examples = [ "std" ]

@@ -1,25 +1,25 @@
 use std::str::FromStr;
 
-use crate::{
+use arithmetic_circuits::{
     arithmetic_circuit::{
-        tests::{
+        examples::{
             generate_3_by_3_determinant_circuit, generate_bls12_377_circuit,
             generate_lemniscate_circuit,
         },
         ArithmeticCircuit,
     },
     expression::{
-        tests::{
+        examples::{
             generate_3_by_3_determinant_expression, generate_bls12_377_expression,
             generate_lemniscate_expression,
         },
         Expression,
     },
-    ligero::LigeroCircuit,
-    matrices::SparseMatrix,
     reader::read_constraint_system,
-    DEFAULT_SECURITY_LEVEL,
+    TEST_DATA_PATH,
 };
+
+use crate::{ligero::LigeroCircuit, matrices::SparseMatrix, DEFAULT_SECURITY_LEVEL};
 use ark_bls12_377::{Fq, G1Affine};
 use ark_bn254::Fr;
 use ark_crypto_primitives::sponge::{poseidon::PoseidonSponge, Absorb};
@@ -365,15 +365,15 @@ pub fn test_multioutput_1() {
 pub fn test_poseidon() {
     println!("Reading R1CS from file...");
     let cs: ConstraintSystem<Fr> = read_constraint_system(
-        "circom/poseidon/poseidon.r1cs",
-        "circom/poseidon/poseidon_js/poseidon.wasm",
+        &format!(TEST_DATA_PATH!(), "poseidon/poseidon.r1cs"),
+        &format!(TEST_DATA_PATH!(), "poseidon/poseidon_js/poseidon.wasm"),
     );
 
     println!("Compiling R1CS into ArithmeticCircuit...");
     let (circuit, outputs) = ArithmeticCircuit::from_constraint_system(&cs);
 
     let cs_witness: Vec<Fr> = serde_json::from_str::<Vec<String>>(
-        &std::fs::read_to_string("circom/poseidon/witness.json").unwrap(),
+        &std::fs::read_to_string("../circom/poseidon/witness.json").unwrap(),
     )
     .unwrap()
     .iter()
